@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gimbal Lab</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <h1>Gimbal Lab</h1>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="om" aria-selected="true">DJI OM 4</button>
+    <button role="tab" data-tab="ex" aria-selected="false">Explore (SCORP-C)</button>
+  </nav>
+</header>
+
+<main>
+  <p id="nobt" class="warn" hidden>This browser can't use Bluetooth. Open this page in <b>Chrome</b> on your Android phone or Mac.</p>
+
+  <!-- ================= OM 4 ================= -->
+  <section id="tab-om" class="tab">
+    <div class="card">
+      <h2>1. Connect</h2>
+      <p class="hint">Force-stop DJI Mimo first (Settings → Apps → DJI Mimo → Force stop). Gimbal unfolded, phone in the clamp, powered on.</p>
+      <div class="row">
+        <button id="omConnect" class="primary">Connect OM 4</button>
+        <button id="omDisconnect" disabled>Disconnect</button>
+      </div>
+      <dl class="stats">
+        <div><dt>Status</dt><dd id="omStatus">Not connected</dd></div>
+        <div><dt>Gimbal talking back</dt><dd id="omRx">—</dd></div>
+        <div><dt>Battery</dt><dd id="omBatt">—</dd></div>
+        <div><dt>Position</dt><dd id="omAtt">—</dd></div>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h2>2. Find the wake-up</h2>
+      <p class="hint">Tap <b>Run test</b> and watch the gimbal. Each step tries one more thing Mimo does, turns the gimbal about 25° and back. If the page can read the gimbal's position it marks the result itself; otherwise tap <b>Moved</b> or <b>Didn't move</b>.</p>
+      <div class="row">
+        <button id="runLadder" class="primary" disabled>Run test</button>
+        <button id="stopLadder" disabled>Stop</button>
+      </div>
+      <ol id="ladder" class="ladder"></ol>
+      <p id="found" class="good" hidden></p>
+    </div>
+
+    <div class="card">
+      <h2>3. Drive it</h2>
+      <p class="hint">Hold an arrow to move. Works once step 2 finds what wakes the gimbal.</p>
+      <div class="pad">
+        <span></span><button data-move="up" aria-label="Tilt up">▲</button><span></span>
+        <button data-move="left" aria-label="Pan left">◀</button>
+        <button id="sweep" aria-label="Sweep">Sweep</button>
+        <button data-move="right" aria-label="Pan right">▶</button>
+        <span></span><button data-move="down" aria-label="Tilt down">▼</button><span></span>
+      </div>
+      <details>
+        <summary>Advanced: send any command</summary>
+        <div class="row wrap">
+          <label>cmdSet <input id="rawSet" value="04" size="3"></label>
+          <label>cmd <input id="rawCmd" value="14" size="3"></label>
+          <label class="grow">payload hex <input id="rawPay" value="fa 00 00 00 00 00 04 0a"></label>
+          <button id="rawSend" disabled>Send</button>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ================= Explorer ================= -->
+  <section id="tab-ex" class="tab" hidden>
+    <div class="card">
+      <h2>Explore any Bluetooth gimbal</h2>
+      <p class="hint">For the Feiyu SCORP-C: <b>close the Feiyu app completely</b>, power on the gimbal, then connect. The page lists everything the gimbal exposes and records everything it sends.</p>
+      <div class="row wrap">
+        <label class="grow">Name starts with <input id="exName" value="FY_" placeholder="leave empty to see all"></label>
+        <label class="grow">Extra service IDs <input id="exExtra" placeholder="optional, e.g. ffe0"></label>
+      </div>
+      <div class="row">
+        <button id="exConnect" class="primary">Connect</button>
+        <button id="exDisconnect" disabled>Disconnect</button>
+      </div>
+      <p id="exStatus" class="hint">Not connected</p>
+      <div id="exChars"></div>
+      <div class="row wrap">
+        <label class="grow">Send to <select id="exTarget"></select></label>
+        <label class="grow">hex <input id="exHex" placeholder="a5 5a 01 ..."></label>
+        <button id="exSend" disabled>Send</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="card">
+    <div class="row between">
+      <h2>Log</h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="showNoise"> show heartbeats</label>
+        <button id="copyLog">Copy log</button>
+        <button id="clearLog">Clear</button>
+      </div>
+    </div>
+    <p class="hint">If something doesn't work, tap <b>Copy log</b> and paste it to Claude.</p>
+    <pre id="log" class="log"></pre>
+  </div>
+</main>
+
+<footer>Protocol notes for the OM series come from the MIT-licensed <a href="https://github.com/alkersan/om-research">om-research</a> project. Experimental: use at your own risk.</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
