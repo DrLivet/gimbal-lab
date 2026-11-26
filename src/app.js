@@ -8,6 +8,7 @@ import { Voice } from './voice.js';
 import { PRESETS, loadCustom, saveCustom, play as playMove, MoveRecorder } from './moves.js';
 import { Obs } from './obs.js';
 import { findWorkingMic, testAllMics } from './mic.js';
+import { canPickFolder, pickFolder, forgetFolder, getFolder, openTake, takeName } from './saver.js';
 import { load as loadSettings, save as saveSettings } from './store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -266,33 +267,34 @@ function recenter() {
   toast('Recentering');
 }
 
-let recorder = null; let chunks = [];
+let recorder = null;
 async function toggleRecord() {
   if (recorder) { recorder.stop(); return; }
   const stream = active.stream;
   if (!stream) return toast('No camera yet');
+  // Standard MP4 (H.264 picture + AAC sound) plays in Gallery and every player; then fall back.
+  const types = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mimeType = types.find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
+  const ext = /mp4/.test(mimeType) ? 'mp4' : 'webm';
+  // Open the save folder first, while the tap still counts (a permission prompt needs it).
+  const take = await openTake(takeName(ext), mimeType.split(';')[0] || 'video/webm', { ask: true });
   let audio = [];
   try { audio = [(await getMic()).track]; } catch { toast('No microphone — recording picture only'); }
   const tracks = [...stream.getVideoTracks(), ...audio];
-  const types = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9,opus', 'video/webm'];
-  const mimeType = types.find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
-  try { recorder = new MediaRecorder(new MediaStream(tracks), { mimeType, videoBitsPerSecond: 12e6 }); }
+  let rec;
+  try { rec = new MediaRecorder(new MediaStream(tracks), { mimeType, videoBitsPerSecond: 12e6, audioBitsPerSecond: 160e3 }); }
   catch (e) { return toast(`Can't record here: ${e.message}`); }
-  chunks = [];
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.onstop = () => {
-    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-    const ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `gimbal-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${ext}` });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  recorder = rec;
+  rec.ondataavailable = (e) => { if (e.data.size) take.write(e.data).catch(() => toast('Saving failed — phone storage full?', 4000)); };
+  rec.onstop = async () => {
     recorder = null;
     $('btnRecord').setAttribute('aria-pressed', 'false');
-    toast('Saved to Downloads');
+    try { toast(`Saved on this device: ${await take.close()}`, 4000); }
+    catch { toast('Could not save the recording', 4000); }
   };
-  recorder.start(1000);
+  rec.start(1000);
   $('btnRecord').setAttribute('aria-pressed', 'true');
-  toast('Recording');
+  toast(take.folderName ? `Recording to ${take.folderName}` : 'Recording');
 }
 
 // ---------- joystick ----------
@@ -518,7 +520,7 @@ $('obsConnect').onclick = async () => {
 // ---------- sheet + settings wiring ----------
 const sheet = $('sheetMore');
 function openSheet(tab = 'moves') {
-  renderMoves(); renderObsMap(); if (tab === 'settings') fillMics().catch(() => {});
+  renderMoves(); renderObsMap(); if (tab === 'settings') { fillMics().catch(() => {}); showFolder(); }
   sheet.querySelectorAll('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   sheet.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== tab; });
   if (!sheet.open) sheet.showModal();
@@ -572,6 +574,19 @@ $('micTest').onclick = async () => {
   } catch (e) { out.textContent = `Test failed: ${e.message}`; }
   if (voice.on) setVoice(true);
 };
+// Recordings folder
+async function showFolder() {
+  const info = $('folderInfo');
+  if (!canPickFolder()) { info.textContent = 'Recordings go to Downloads.'; $('folderPick').hidden = true; return; }
+  const dir = await getFolder().catch(() => null);
+  info.textContent = dir ? `Recordings save to: ${dir.name}` : 'Recordings save to: Downloads (pick a folder to change)';
+  $('folderForget').hidden = !dir;
+}
+$('folderPick').onclick = async () => {
+  try { const d = await pickFolder(); toast(`Recordings will save to ${d.name}`); } catch (e) { if (e.name !== 'AbortError') toast(`Couldn't use that folder: ${e.message}`, 4000); }
+  showFolder();
+};
+$('folderForget').onclick = async () => { await forgetFolder(); showFolder(); };
 bind('scriptText', 'script', { after: () => { if (!pr.el.hidden) pr.text.textContent = S.script; } });
 bind('prSpeed', 'prompterSpeed', { type: 'number' });
 bind('prSize', 'prompterSize', { type: 'number', after: prompterStyle });

@@ -19,7 +19,7 @@ const server = http.createServer(async (req, res) => {
 }).listen(8767);
 
 const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['camera', 'microphone'] });
+const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 844 }, permissions: ['camera', 'microphone'] });
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -92,6 +92,19 @@ try {
   assert.equal(await page.evaluate(() => window.__srStarts[0]), 'Speakerphone', 'voice uses the live mic');
   await page.click('#btnVoice');
 
+  // Record: picture + sound, saved as a file on the device (Downloads when no folder is picked)
+  await page.click('#btnRecord');
+  await page.waitForFunction(() => document.getElementById('btnRecord').getAttribute('aria-pressed') === 'true');
+  await page.waitForTimeout(2500);
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }), page.click('#btnRecord')]);
+  const recPath = (process.env.SHOT || '/tmp/gimbal-app.png').replace(/\.png$/, '') + '-take';
+  await dl.saveAs(recPath);
+  assert.match(dl.suggestedFilename(), /^Gimbal \d{4}-\d\d-\d\d .*\.(mp4|webm)$/);
+  const { execFileSync } = await import('node:child_process');
+  const kinds = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', recPath]).toString().trim().split(/\s+/).sort();
+  assert.deepEqual(kinds, ['audio', 'video'], `take has picture and sound (${kinds})`);
+  await page.waitForFunction(() => /Saved on this device: Downloads\//.test(document.getElementById('toast').textContent));
+
   // Prompter: paste a script, play, it scrolls
   await page.click('#btnMore');
   await page.click('[role="tab"][data-tab="script"]');
@@ -117,6 +130,7 @@ try {
   await page.click('[role="tab"][data-tab="settings"]');
   await page.selectOption('#setFraming', 'left');
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('gimbal-app.settings')).framing), 'left');
+  assert.match(await page.textContent('#folderInfo'), /Recordings save to: Downloads|Recordings go to Downloads/);
   await page.click('#micTest');
   await page.waitForFunction(() => document.querySelectorAll('#micResults .item').length === 2, null, { timeout: 10000 });
   const micRows = await page.$$eval('#micResults .item', (n) => n.map((x) => x.textContent));
