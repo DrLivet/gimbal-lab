@@ -86,7 +86,8 @@ What follows was the spec; all of it is in place except multi-camera use on real
 ### SCORP-C hardware results (2026-11-26, from the Mac with `tools/scorp_test.py` / `tools/scorp_experiments.py`)
 - Connects; the gimbal streams cmd 30 (attitude, ~10 Hz) and acknowledges SET commands (use mode → RESPONSE_SET).
 - The Feiyu app's log (tag `20191206`) shows it sends exactly our joystick packet (course ±450 at 30 Hz) and, for SCORP-C, no app-status push (`scorp_c.json` has no `appStatusPush`).
-- Joystick from the Mac moved the gimbal only in runs where no use-mode 2 ("restore initial position") had been sent since power-on. Suspect: use mode 2 stops joystick until power-cycle. `FeiyuScorp.recenter()` now drives back by offset; `restoreInitialPosition()` is kept but unused. Unconfirmed.
+- **CONFIRMED 2026-11-26 11:43 (owner watched): joystick pans and tilts the SCORP-C** from our packets, with no extra preparation. Earlier failures came after use mode 2 ("restore initial position"), which stops joystick control until power-cycle. `FeiyuScorp.recenter()` drives back by offset; `restoreInitialPosition()` is kept but unused.
+- Attitude cmd 30 fields (i16 at data[1], [3], [5]): the third tracks pan (falls on right, rises on left); the first two jump ~4850 on tilt up. Units unconfirmed; tune `settings.maxSpeed` (deg/s at full stick) by eye.
 - The gimbal stops advertising a few minutes after a disconnect (seen while on the charger). Press its power button before testing.
 - macOS won't give Bluetooth to the Claude app process; run BLE tools via the `.command` launchers in `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/` (they open Terminal, which has Bluetooth access) and read the `.log` files.
 - **Next test (owner present, gimbal freshly powered on):** double-click `SCORP-C experiments.command` and watch. Each trial logs the angle span; a big span on trial A = joystick works and use mode 2 was the culprit.
