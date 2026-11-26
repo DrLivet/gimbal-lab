@@ -28,11 +28,15 @@ export const DEFAULTS = {
   lostAfter: 1.2,    // seconds without a face before we stop
   smoothing: 0.12,   // seconds of detector smoothing
   accel: 1,          // how quickly speed changes (lower = gentler starts/stops)
-  gain: 1.5,         // deg/s of turn per degree you are off-target (before `speed`)
-  latency: 0.45,
-  matchSpeed: 1.1,    // how much of the person's own speed to add (feed-forward)
-  coast: 1.5,        // seconds to keep turning after the person leaves the picture
-  moveSpeed: 10,     // deg/s: slower than this counts as sitting still     // tuned on the owner's OM 5 (Bluetooth + camera + detector ≈ 0.3–0.5 s)        // seconds between a turn command and seeing it in the picture
+  gain: 2,           // deg/s of turn per degree you are off-target (before `speed`)
+  latency: 0.45,     // seconds between a turn command and seeing it in the picture
+                     // (tuned on the owner's OM 5: Bluetooth + camera + detector ≈ 0.3–0.5 s)
+  integ: 0,          // integral gain (1/s²); 0 = off (made it less stable in simulation)
+  integMax: 60,      // cap on the built-up integral, degrees·s
+  matchSpeed: 0,     // feed-forward of the person's speed; off — it made the real OM 5 swing (2026-11-26)
+  moveSpeed: 10,     // deg/s: slower than this counts as sitting still
+  coast: 2.5,          // seconds to keep searching after the person leaves the picture
+  searchSpeed: 60,   // deg/s sweep toward where they left the picture
 };
 
 // Walking: the body bobs and the detector jumps more, so smooth harder, ignore small drift,
@@ -57,6 +61,7 @@ export class Follow {
     this.world = null;                   // where the person is, in the same angles
     this.pv = { pan: 0, tilt: 0 };       // how fast the person is moving, deg/s
     this.stillFor = 0;                   // seconds the person has been framed and still
+    this.integ = { pan: 0, tilt: 0 };    // builds up while the person stays off-target (catches a walk)
   }
 
   // dt in seconds since the previous update.
@@ -72,14 +77,19 @@ export class Follow {
       if (this.lostFor >= s.lostAfter) { this.smooth = null; this.world = null; }
       // Just left the picture: keep turning the way you were going (you probably walked out
       // of frame faster than we turned), easing off over `coast` seconds.
-      if (this.lostFor < s.coast && (Math.abs(this.pv.pan) > s.moveSpeed || Math.abs(this.pv.tilt) > s.moveSpeed)) {
-        // Full speed for most of the coast (a bit faster, to catch up), easing off at the end.
-        const k = Math.min(1, 3 * (1 - this.lostFor / s.coast)) * 1.15;
-        return this._approach(this._cap({ pan: this.pv.pan * k, tilt: s.tiltEnabled ? this.pv.tilt * k : 0 }), dt, 10 * s.accel);
+      // Left the picture at an edge: sweep briskly that way to find them again.
+      const ls = this.lastSeen;
+      if (ls && this.lostFor < s.coast) {
+        const k = Math.min(1, 3 * (1 - this.lostFor / s.coast));
+        const sweep = (off, edge) => (Math.abs(off) > edge ? Math.sign(off) * s.searchSpeed * k : 0);
+        const want = { pan: sweep(ls.x - 0.5, 0.3), tilt: s.tiltEnabled ? sweep(0.5 - ls.y, 0.3) : 0 };
+        if (want.pan || want.tilt) return this._approach(this._cap(want), dt, 6 * s.accel);
       }
       this.pv = { pan: 0, tilt: 0 };
       return this._approach({ pan: 0, tilt: 0 }, dt, this.lostFor >= s.lostAfter ? 8 : 3);
     }
+    if (this.lostFor > 0) this.integ = { pan: 0, tilt: 0 };   // fresh start after losing them
+    this.lastSeen = { x: target.x, y: target.y };
     this.lostFor = 0;
     // Aim at the eyes rather than the box centre: a little above the middle of the face.
     const cx = target.x;
@@ -102,7 +112,7 @@ export class Follow {
     // The picture is `latency` old. Compare where the person will be once our commands land
     // (smoothed position + their speed × latency) with where we've already told the camera to go.
     // This stops overshoot when still and stops lagging behind when they move.
-    const pred = (axis, sm, fov, sign) => camSeen[axis] + sign * (sm - 0.5) * fov + this.pv[axis] * s.latency - this.cam[axis];
+    const pred = (axis, sm, fov, sign) => camSeen[axis] + sign * (sm - 0.5) * fov + (s.matchSpeed > 0 ? this.pv[axis] * s.latency : 0) - this.cam[axis];
     const ex = pred('pan', this.smooth.x, s.hfov, 1) / s.hfov - (goal.x - 0.5);    // + : person right of target
     const ey = pred('tilt', this.smooth.y, s.vfov, -1) / s.vfov - (0.5 - goal.y);  // + : person above target
     // Deadzone with hysteresis: start correcting outside the zone, stop once well inside.
@@ -114,22 +124,34 @@ export class Follow {
     const still = !moving(this.pv.pan) && !moving(this.pv.tilt);
     this.stillFor = inner && still ? this.stillFor + dt : (still ? this.stillFor : 0);
     const hold = this.stillFor > 0.5 ? 1.6 : 1;   // bigger zone when settled
-    this.active.x = moving(this.pv.pan) || Math.abs(ex) > (this.active.x ? s.deadzone * 0.4 : s.deadzone * hold);
-    this.active.y = s.tiltEnabled && (moving(this.pv.tilt) || Math.abs(ey) > (this.active.y ? s.deadzone * 0.5 : s.deadzone * 1.3 * hold));
+    const useFF = s.matchSpeed > 0;
+    this.active.x = (useFF && moving(this.pv.pan)) || Math.abs(ex) > (this.active.x ? s.deadzone * 0.4 : s.deadzone * hold);
+    this.active.y = s.tiltEnabled && ((useFF && moving(this.pv.tilt)) || Math.abs(ey) > (this.active.y ? s.deadzone * 0.5 : s.deadzone * 1.3 * hold));
     if (this.active.x || this.active.y) { if (!inner) this.stillFor = 0; }
 
     const gain = s.gain * s.speed; // deg/s per degree of error
     // Match the person's own speed (feed-forward) so a fast walk doesn't leave us behind.
     const ff = (v) => (moving(v) ? v * s.matchSpeed : 0);
+    // Integral: while you stay off-target (e.g. walking), turn steadily faster; it drains
+    // when you're framed so nothing builds up while you sit still.
+    const integ = (axis, on, errDeg) => {
+      const I = this.integ;
+      if (on) I[axis] = Math.max(-s.integMax, Math.min(s.integMax, I[axis] + errDeg * dt));
+      else I[axis] *= Math.exp(-dt / 0.3);
+      return s.integ * I[axis];
+    };
+    const ip = integ('pan', this.active.x, ex * s.hfov); const it = integ('tilt', this.active.y, ey * s.vfov);
     const want = {
-      pan: this.active.x ? ex * s.hfov * gain + ff(this.pv.pan) : 0,
-      tilt: this.active.y ? ey * s.vfov * gain + ff(this.pv.tilt) : 0,
+      pan: this.active.x ? ex * s.hfov * gain + ip + ff(this.pv.pan) : 0,
+      tilt: this.active.y ? ey * s.vfov * gain + it + ff(this.pv.tilt) : 0,
     };
     // Close to the edge of the picture: turn harder before we lose them.
     // Respond faster to a real move or near the edge; gently when just re-centring.
     const edge = Math.max(Math.abs(cx - 0.5), Math.abs(cy - 0.5));
-    const urgent = moving(this.pv.pan) || moving(this.pv.tilt) || edge > 0.3;
-    return this._approach(this._cap(want), dt, 6 * s.speed * s.accel * (urgent ? 4 : 1));
+    const urgent = edge > 0.3;
+    const out = this._approach(this._cap(want), dt, 6 * s.speed * s.accel * (urgent ? 2 : 1));
+    this.lastSeenVel = out;
+    return out;
   }
 
   _cap(v) {

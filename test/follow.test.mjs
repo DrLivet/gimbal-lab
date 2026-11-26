@@ -12,10 +12,11 @@ assert.equal(v.pan, 0); assert.equal(v.tilt, 0);
 
 // Person to the right: pan right (positive), and speed grows smoothly rather than jumping.
 f = new Follow();
+// (Face held fixed in the picture, so this only checks the first half second.)
 const first = f.update(face(0.8, 0.48), 1 / 15);
-v = run(f, face(0.8, 0.48), 1);
-assert.ok(v.pan > 10, `expected strong right pan, got ${v.pan}`);
-assert.ok(first.pan < v.pan, 'should ramp up');
+let peak = 0; for (let i = 0; i < 7; i++) peak = Math.max(peak, f.update(face(0.8, 0.48), 1 / 15).pan);
+assert.ok(peak > 10, `expected strong right pan, got ${peak}`);
+assert.ok(first.pan < peak, 'should ramp up');
 // To the left: pan left.
 v = run(new Follow(), face(0.2, 0.48), 1);
 assert.ok(v.pan < -10);
@@ -36,9 +37,16 @@ assert.equal(v.pan, 0);
 v = run(new Follow({ framing: 'left' }), face(0.5, 0.48), 1);
 assert.ok(v.pan > 5);
 
-// Lost: speed decays to zero after lostAfter.
+// Lost at the right edge: sweep right to find them, then stop after the search time.
 f = new Follow();
 run(f, face(0.9, 0.48), 1);
+v = run(f, null, 0.6);
+assert.ok(v.pan > 20, `searches toward where they left (${v.pan})`);
+v = run(f, null, 3);
+assert.equal(v.pan, 0);
+// Lost from the middle (e.g. turned away): just stop.
+f = new Follow();
+run(f, face(0.5, 0.48), 1);
 v = run(f, null, 2);
 assert.equal(v.pan, 0);
 
@@ -112,15 +120,31 @@ console.log('follow: delay simulation passed');
   // Sitting still with wobble: after settling, the gimbal doesn't move at all.
   const still = run(() => ({ pan: 4, tilt: 0 }), { noise: 0.015 }).filter((l) => l.t > 2);
   assert.equal(still.filter((l) => Math.abs(l.v.pan) > 0.3 || Math.abs(l.v.tilt) > 0.3).length, 0, 'holds still when you sit still');
-  // Walking at 30°/s for 3 s: never leaves the picture.
-  assert.equal(out(run((t) => ({ pan: Math.min(Math.max(t - 0.5, 0), 3) * 30, tilt: 0 }))), 0, 'keeps up with a brisk walk');
-  // A very fast 60°/s move: may slip out briefly, but catches up and re-centres.
-  const fast = run((t) => ({ pan: Math.min(Math.max(t - 0.5, 0), 1.5) * 60, tilt: 0 }));
+  // Walk-and-talk at 20°/s for 4 s: never leaves the picture.
+  assert.equal(out(run((t) => ({ pan: Math.min(Math.max(t - 0.5, 0), 4) * 20, tilt: 0 }), { secs: 7 })), 0, 'keeps up with a walk');
+  // A very fast 60°/s move: slips out, then the search sweep finds you and re-centres.
+  const fast = run((t) => ({ pan: Math.min(Math.max(t - 0.5, 0), 1.5) * 60, tilt: 0 }), { secs: 8 });
   assert.ok(Math.abs(fast.at(-1).x - 0.5) < 0.08, `re-finds you after a fast move (${fast.at(-1).x.toFixed(2)})`);
   // Standing up (20° up) and sitting down: tilt follows.
   for (const dir of [1, -1]) {
     const L = run((t) => ({ pan: 0, tilt: dir * Math.min(Math.max(t - 0.5, 0), 1) * 20 }));
     assert.equal(out(L), 0); assert.ok(Math.abs(L.at(-1).y - 0.42) < 0.07, `tilt follows (${dir > 0 ? 'up' : 'down'}: ${L.at(-1).y.toFixed(2)})`);
   }
+}
+// Never swings back and forth, even if the gimbal turns 0.5–1.6× as fast as asked
+// or answers up to 0.5 s late (the swinging the owner saw on 2026-11-26).
+{
+  const sim = (eff, delay) => {
+    const fov = fovFor(1920, 1080); const dt = 1 / 15; const f = new Follow({ ...fov });
+    let cam = 0; const H = []; const C = []; const v = [];
+    for (let i = 0; i < 8 / dt; i++) {
+      const t = i * dt; H.push([t, cam]);
+      const seen = H.filter(([tt]) => tt <= t - 0.12).at(-1)?.[1] ?? 0;
+      const o = f.update(face(0.5 + (15 - seen) / fov.hfov, 0.435), dt); C.push([t, o.pan]); v.push(o.pan);
+      cam += (C.filter(([tt]) => tt <= t - delay).at(-1)?.[1] ?? 0) * eff * dt;
+    }
+    return v.slice(1).filter((x, i) => x && v[i] && Math.sign(x) !== Math.sign(v[i])).length;
+  };
+  for (const eff of [0.5, 0.8, 1.2, 1.6]) for (const d of [0.2, 0.35, 0.5]) assert.ok(sim(eff, d) <= 2, `no swinging (speed ×${eff}, delay ${d}s: ${sim(eff, d)} reversals)`);
 }
 console.log('follow: room simulation passed');
