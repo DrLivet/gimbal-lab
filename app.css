@@ -22,7 +22,7 @@ a { color: #6fb0ff; }
 .rig-bar { position: absolute; left: 8px; right: 8px; top: max(8px, env(safe-area-inset-top)); display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; z-index: 2; }
 .rig-bar select, .rig-bar button { background: rgba(15,17,20,.72); border: 1px solid rgba(255,255,255,.18); color: var(--ink); border-radius: 10px; min-height: 40px; padding: 0 8px; font-size: 13px; flex: 1 1 0; max-width: 34%; backdrop-filter: blur(6px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rig-bar .status { position: absolute; left: 0; top: 46px; max-width: none; }
-.rig-bar .remove { flex: 0 0 40px; }
+.rig-bar .remove, .rig-bar .rotate { flex: 0 0 44px; font-size: 20px; }
 .rig-bar .connect.on { background: var(--good); border-color: var(--good); }
 .rig-bar .status { font-size: 13px; color: #fff; text-shadow: 0 1px 2px #000; }
 .live-tag { position: absolute; right: 10px; bottom: 10px; background: var(--bad); color: #fff; font-weight: 700; font-size: 12px; padding: 3px 8px; border-radius: 6px; z-index: 2; }

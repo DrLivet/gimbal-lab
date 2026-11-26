@@ -18,6 +18,9 @@ const RULES = [
   [/\b(camera|cam) (two|2|to|too)\b/, 'camera-2'],
   [/\b(camera|cam) (three|3)\b/, 'camera-3'],
   [/\bauto (switch|camera)\b/, 'camera-auto'],
+  [/\b(landscape|sideways|horizontal)\b/, 'orient-landscape'],
+  [/\b(portrait|vertical|upright)\b/, 'orient-portrait'],
+  [/\b(rotate|flip)( the)?( phone| camera)?\b/, 'orient-toggle'],
   [/\b(start|play|roll) (the )?(script|prompter)\b/, 'prompter-play'],
   [/\b(pause|stop) (the )?(script|prompter)\b/, 'prompter-pause'],
   [/\bfaster\b/, 'faster'],
@@ -26,7 +29,7 @@ const RULES = [
 ];
 
 // Order matters: "stop recording" must win over "record", "stop following" over "follow".
-const PRIORITY = ['record-stop', 'follow-off', 'prompter-pause', 'frame-left', 'frame-right', 'frame-center', 'play-move'];
+const PRIORITY = ['record-stop', 'follow-off', 'prompter-pause', 'frame-left', 'frame-right', 'frame-center', 'play-move', 'orient-landscape', 'orient-portrait', 'orient-toggle'];
 
 export function parseCommand(text) {
   const t = ` ${text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ')} `;

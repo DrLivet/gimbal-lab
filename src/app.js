@@ -5,6 +5,8 @@ import { MODELS } from '../lib/gimbal.js';
 import { Follow, pickTarget, FRAMING, WALKING, fovFor } from './follow.js';
 import { HoldDetector, GestureWatcher } from './gesture.js';
 import { calibrate } from './calibrate.js';
+import { rotatePhone } from './orient.js';
+import { ROT } from '../lib/duml.js';
 import { beep as rawBeep } from './beep.js';
 import { Tracker } from './tracker.js';
 import { Voice } from './voice.js';
@@ -48,6 +50,8 @@ class Rig {
     this.camSel = this.el.querySelector('.cam');
     this.modelSel = this.el.querySelector('.model');
     this.btnConnect = this.el.querySelector('.connect');
+    this.btnRotate = this.el.querySelector('.rotate');
+    this.btnRotate.onclick = (e) => { e.stopPropagation(); this.rotatePhone(); };
     this.statusEl = this.el.querySelector('.status');
     this.gimbal = null;
     this.stream = null;
@@ -183,6 +187,31 @@ class Rig {
     const on = !!this.gimbal?.connected;
     this.btnConnect.textContent = on ? `${this.gimbal.name} ✓` : 'Connect gimbal';
     this.btnConnect.classList.toggle('on', on);
+    // Portrait/landscape works on phone gimbals that hold the phone with a roll motor (DJI OM).
+    this.btnRotate.hidden = !(on && this.gimbal?.om);
+  }
+
+  // Turns the phone between portrait and landscape with the gimbal's roll motor.
+  // target: 0 (portrait), ±90 (landscape) or undefined (switch to the other one).
+  async rotatePhone(target) {
+    const om = this.gimbal?.om;
+    if (!this.gimbal?.connected || !om) return toast('Connect a DJI phone gimbal first');
+    if (this.rotating) return;
+    this.rotating = true; this.btnRotate.disabled = true;
+    const wasFollowing = this.following;
+    if (wasFollowing) await this.setFollowing(false);
+    this.calibrating = true;   // keep follow and joystick out of the way
+    this.setStatus('Turning the phone…');
+    try {
+      const r = await rotatePhone((v) => om.rotate({ roll: v, mode: ROT.SPEED, time: 0 }, { quiet: true }).catch(() => {}), { target });
+      const name = Math.abs(r.to) > 45 ? 'Landscape' : 'Portrait';
+      this.setStatus(r.reached ? name : `Couldn't fully turn to ${name.toLowerCase()} — try again`);
+      beep[r.reached ? 'ok' : 'nope']();
+    } catch (e) { this.setStatus(e.message); }
+    this.calibrating = false; this.rotating = false; this.btnRotate.disabled = false;
+    // The camera picture changed shape: re-check directions (also brings follow back).
+    if (S.autoCheckDirs !== false) { this.follow.reset(); this.applySettings(); await this.checkDirections(); }
+    if (wasFollowing && !this.following) await this.setFollowing(true);
   }
 
   setStatus(t) { this.statusEl.textContent = t || ''; }
@@ -478,6 +507,9 @@ function applyVoice(c) {
     'record-stop': stopRecordingHandsFree,
     'camera-1': () => goLive(rigs[0], true), 'camera-2': () => goLive(rigs[1], true), 'camera-3': () => goLive(rigs[2], true),
     'camera-auto': () => { studio.auto = true; S.autoSwitch = true; persist(); $('autoSwitch').checked = true; toast('Auto camera on'); },
+    'orient-landscape': () => active.rotatePhone(90),
+    'orient-portrait': () => active.rotatePhone(0),
+    'orient-toggle': () => active.rotatePhone(),
     'prompter-play': () => prompterPlay(true),
     'prompter-pause': () => prompterPlay(false),
     faster: () => { S.prompterSpeed = Math.min(150, S.prompterSpeed + 8); persist(); $('prSpeed').value = S.prompterSpeed; toast(`Script speed ${S.prompterSpeed}`); },
