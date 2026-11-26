@@ -77,6 +77,16 @@ What follows was the spec; all of it is in place except multi-camera use on real
 - **Microphone:** the S24 Ultra bottom mic is failing. Measured via Chrome remote debugging (adb forward tcp:9222 localabstract:chrome_devtools_remote): input "Default" = digital silence (-140 dB), "Speakerphone" = hears (peaks -10 dB), "Headset earpiece" = raw only. `src/mic.js` picks the first non-silent input; voice uses Web Speech `start(audioTrack)` (Chrome 158 supports it) with fallback; recordings use the same mic. **Voice recognition from that track is not yet confirmed on the phone** (one try started but heard nothing; owner may not have been speaking).
 - Phone remote-debug helper used for these checks: Runtime.evaluate over the DevTools websocket on :9222.
 
+## Confirmed on the owner's phone + OM 5 (2026-11-26, late afternoon)
+Owner-tested and working: follow-me (smooth, holds still when you're still, follows up/down), ✋ palm = record start/stop (3-2-1 countdown), ⟳ portrait/landscape button, 🔄 knob-twist gesture, voice ("gimbal landscape/portrait/follow me"). Recording saves standard MP4 (H.264 + AAC) on the phone (Downloads, or a folder picked in Settings › Recordings).
+Key findings:
+- **Directions differ per mount/orientation.** The OM 5 measured both axes reversed in some sessions, only pan in others. The app now checks on every connect by nudging each axis and watching the picture (`src/calibrate.js`), stored per gimbal + front/back camera. Don't hard-code directions.
+- **Follow tuning:** gain 2, delay prediction 0.45 s (uses past commanded camera position), hold-still zone after 0.5 s settled, edge search sweep 60°/s for 2.5 s. **Speed-matching (feed-forward) made the real OM 5 swing ±100°/s — keep `matchSpeed: 0`.** Room simulation tests in `test/follow.test.mjs` cover gimbal speed ×0.5–1.6 and 0.2–0.5 s delay.
+- **OM 5 reports its attitude only ~1×/s** (04/05), too slow for feedback control.
+- **Portrait/landscape:** roll speed commands (04/0c roll) rotate the OM 5 phone clamp and it stays. `src/orient.js` closes the loop on the phone's gravity sensor (devicemotion) and stops at 0°/±90°.
+- **OM 5 hardware buttons (record, M) send nothing to our app** — probably need a handshake only DJI Mimo sends. Capturing Mimo on the S24 failed: Samsung omits btsnoop from bugreports, SysDump's bluetooth folder was empty, the snoop socket never opened, and `dumpsys bluetooth_manager` BTSNOOP_LOG_SUMMARY strips ACL payloads. Mimo (`mimo.sz` 2.12.12) is AppGuard/PairIP-packed, so no static decompile. Next idea: capture on a non-Samsung Android or a rooted device; tools ready: `tools/btsnoop_duml.mjs`, `tools/btsnooz.mjs`.
+- Phone tips: the app's offline cache can serve stale code after a deploy — fetch files with `{cache:'reload'}` then reload. Tapping Connect while connected disconnects.
+
 ## DJI gimbal results (2026-11-26, from the Mac with `tools/om4_test.py`)
 - **The owner's DJI gimbal is an OM 5** (BLE name `OM5-8055QE`), not an OM 4. Same DUML protocol and FFF0 service.
 - macOS keeps it connected at system level (paired as a remote), so it doesn't advertise; the test retrieves it with CoreBluetooth `retrieveConnectedPeripheralsWithServices` (FFF0). On the phone, unpair it from Android Bluetooth settings first if Chrome can't see it.
