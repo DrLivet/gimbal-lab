@@ -1,5 +1,5 @@
 // Network-first app shell: always fresh when online, still opens offline (e.g. on set with no signal).
-const CACHE = 'gimbal-studio-v7';
+const CACHE = 'gimbal-studio-v8';
 const SHELL = [
   './', './index.html', './app.css', './manifest.webmanifest', './lab.html', './styles.css',
   './src/app.js', './src/follow.js', './src/tracker.js', './src/voice.js', './src/moves.js', './src/obs.js', './src/store.js', './src/mic.js', './src/saver.js', './src/gesture.js', './src/beep.js', './src/calibrate.js', './src/orient.js', './src/lab.js',

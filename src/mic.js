@@ -15,8 +15,8 @@ export function isSilent(samples) {
 export function orderInputs(inputs, preferredId) {
   const score = (d) => {
     if (preferredId && preferredId !== 'auto' && d.deviceId === preferredId) return 0;
-    if (d.deviceId === 'default') return 1;
-    if (/speaker|top|back|camcorder/i.test(d.label)) return 2;
+    if (/speaker|top|back|camcorder/i.test(d.label)) return 1;   // S24: "Speakerphone" = top mic
+    if (d.deviceId === 'default') return 2;
     if (/headset|earpiece/i.test(d.label)) return 4;
     return 3;
   };

@@ -2,6 +2,7 @@
 // A "rig" is one camera + (optionally) one gimbal + a face/body tracker + a follow controller.
 // Phone: one full-screen rig. Mac: a grid of rigs, with OBS scene switching to the camera you face.
 import { MODELS } from '../lib/gimbal.js';
+import { findKnownDevice } from '../lib/ble.js';
 import { Follow, pickTarget, FRAMING, WALKING, fovFor } from './follow.js';
 import { HoldDetector, GestureWatcher, TwistDetector } from './gesture.js';
 import { calibrate } from './calibrate.js';
@@ -109,7 +110,8 @@ class Rig {
   async startCamera(deviceId) {
     this.stream?.getTracks().forEach((t) => t.stop());
     const video = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' };
-    Object.assign(video, { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } });
+    const q = { 720: [1280, 720], 1080: [1920, 1080], 2160: [3840, 2160] }[S.videoQuality] || [1920, 1080];
+    Object.assign(video, { width: { ideal: q[0] }, height: { ideal: q[1] }, frameRate: { ideal: Number(S.videoFps) || 30 } });
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
     } catch (e) {
@@ -159,7 +161,21 @@ class Rig {
     return r;
   }
 
-  async connect() {
+  // On app start: reconnect to the gimbal used last time, no picker. Keeps trying for ~2 min.
+  async autoReconnect() {
+    const m = MODELS[this.modelSel.value];
+    if (!m?.names || this.gimbal?.connected) return;
+    for (let i = 0; i < 8 && !this.gimbal?.connected; i++) {
+      this.setStatus(i ? 'Looking for your gimbal… switch it on' : 'Reconnecting to your gimbal…');
+      const d = await findKnownDevice(m.names).catch(() => null);
+      if (d) { await this.connect(d); if (this.gimbal?.connected) return; }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    if (!this.gimbal?.connected) this.setStatus('');
+  }
+
+  async connect(device) {
+    if (device && !device.gatt) device = undefined;   // a click passes an Event
     const m = MODELS[this.modelSel.value];
     if (!m?.create) return toast('That gimbal is not supported yet');
     const g = m.create();
@@ -167,13 +183,17 @@ class Rig {
     g.addEventListener('state', () => this.updateConnectButton());
     this.gimbal = g;
     this.applySettings();
-    this.setStatus('Pick your gimbal in the list…');
+    this.setStatus(device ? `Connecting to ${device.name}…` : 'Pick your gimbal in the list…');
     try {
-      await g.connect();
+      await g.connect(device);
       this.setStatus(`${g.name} connected`);
       toast(`${g.name} connected`);
       this.applySettings();
-      if (S.autoCheckDirs !== false) setTimeout(() => this.checkDirections(), 800);
+      // Check directions, then start following straight away (tap Follow to stop).
+      setTimeout(async () => {
+        if (S.autoCheckDirs !== false) await this.checkDirections();
+        if (S.autoFollow !== false && this.gimbal?.connected && !this.following && this === active) toggleFollow(true);
+      }, 800);
     } catch (e) {
       this.gimbal = null;
       this.setStatus(/cancel/i.test(e.message) ? '' : `Couldn't connect: ${e.message}`);
@@ -371,7 +391,11 @@ async function toggleRecord() {
   try { audio = [(await getMic()).track]; } catch { toast('No microphone — recording picture only'); }
   const tracks = [...stream.getVideoTracks(), ...audio];
   let rec;
-  try { rec = new MediaRecorder(new MediaStream(tracks), { mimeType, videoBitsPerSecond: 12e6, audioBitsPerSecond: 160e3 }); }
+  // Bitrate to match the picture: ~8 Mb/s 720p, 16 Mb/s 1080p, 45 Mb/s 4K (×1.5 at 60 fps).
+  const vs = stream.getVideoTracks()[0]?.getSettings?.() || {};
+  const px = (vs.width || 1920) * (vs.height || 1080);
+  const bps = Math.round((px >= 3840 * 2160 * 0.9 ? 45e6 : px >= 1920 * 1080 * 0.9 ? 16e6 : 8e6) * ((vs.frameRate || 30) > 45 ? 1.5 : 1));
+  try { rec = new MediaRecorder(new MediaStream(tracks), { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: 160e3 }); }
   catch (e) { return toast(`Can't record here: ${e.message}`); }
   recorder = rec;
   rec.ondataavailable = (e) => { if (e.data.size) take.write(e.data).catch(() => toast('Saving failed — phone storage full?', 4000)); };
@@ -385,7 +409,7 @@ async function toggleRecord() {
   beep.go();
   rec.start(1000);
   $('btnRecord').setAttribute('aria-pressed', 'true');
-  toast(take.folderName ? `Recording to ${take.folderName}` : 'Recording');
+  toast(`${take.folderName ? `Recording to ${take.folderName}` : 'Recording'} · ${vs.width}×${vs.height} ${Math.round(vs.frameRate || 30)} fps`);
 }
 
 // Hands-free start: 3-2-1 with beeps so you can get into position. Saying/signalling again
@@ -720,6 +744,9 @@ $('dirCheck').onclick = async () => {
   if (r) toast(active.statusEl.textContent, 4000);
 };
 bind('setAutoDirs', 'autoCheckDirs', { type: 'checked' });
+bind('setAutoFollow', 'autoFollow', { type: 'checked' });
+bind('setQuality', 'videoQuality', { after: () => rigs.forEach((r) => r.stream && r.startCamera(r.camSel.value || undefined)) });
+bind('setFps', 'videoFps', { after: () => rigs.forEach((r) => r.stream && r.startCamera(r.camSel.value || undefined)) });
 // Recordings folder
 async function showFolder() {
   const info = $('folderInfo');
@@ -798,6 +825,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
   requestAnimationFrame(frame);
   // Hands-free: listen from the start. If the browser wants a tap first, the first touch
   // anywhere starts it.
+  active.autoReconnect();
   if (S.voiceOn !== false && voice.supported) {
     setVoice(true).catch(() => {});
     const kick = () => {

@@ -81,10 +81,10 @@ try {
   assert.match(await page.textContent('.rig .status'), /Directions:/);
   assert.equal(await page.evaluate(() => window.__app.active.gimbal.settings.invertTilt), true, 'unsure check keeps the earlier answer');
 
-  // Follow: face is right of centre, so the app must send rotate commands
+  // Follow comes on by itself after connecting (tap to stop). Face is right of centre,
+  // so the app must send rotate commands.
+  await page.waitForFunction(() => document.getElementById('btnFollow').getAttribute('aria-pressed') === 'true', null, { timeout: 10000 });
   const before = await page.evaluate(() => window.__sentPackets.length);
-  await page.click('#btnFollow');
-  await page.waitForFunction(() => document.getElementById('btnFollow').getAttribute('aria-pressed') === 'true');
   await page.waitForTimeout(1500);
   const after = await page.evaluate(() => window.__sentPackets.length);
   assert.ok(after > before + 5, `follow sent ${after - before} packets`);
