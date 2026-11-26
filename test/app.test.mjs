@@ -35,8 +35,28 @@ await page.addInitScript(() => {
     setInterval(() => { g.fillStyle = '#234'; g.fillRect(0, 0, 640, 360); g.fillStyle = '#fc6'; g.beginPath(); g.arc(540, 150, 40 + (f++ % 10), 0, 7); g.fill(); }, 33);
     return c.captureStream(30);
   };
-  navigator.mediaDevices.getUserMedia = async () => fakeStream();
-  navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'videoinput', deviceId: 'fake-cam', label: 'Fake camera', groupId: 'g' }];
+  // Mics like the owner's S24: "Default" is dead (digital silence), "Speakerphone" hears.
+  const audioStream = (alive) => {
+    const ac = new AudioContext(); const dst = ac.createMediaStreamDestination();
+    if (alive) { const o = ac.createOscillator(); const g = ac.createGain(); g.gain.value = 0.05; o.connect(g).connect(dst); o.start(); }
+    else { const c = ac.createConstantSource(); c.offset.value = 0; c.connect(dst); c.start(); }
+    const s = dst.stream; s.getAudioTracks()[0].__mic = alive ? 'Speakerphone' : 'Default'; return s;
+  };
+  window.__audioCtxResume = () => {};
+  navigator.mediaDevices.getUserMedia = async (c) => {
+    if (c.audio && !c.video) { const id = c.audio?.deviceId?.exact || 'default'; return audioStream(id === 'spk'); }
+    return fakeStream();
+  };
+  navigator.mediaDevices.enumerateDevices = async () => [
+    { kind: 'videoinput', deviceId: 'fake-cam', label: 'Fake camera', groupId: 'g' },
+    { kind: 'audioinput', deviceId: 'default', label: 'Default', groupId: 'a' },
+    { kind: 'audioinput', deviceId: 'spk', label: 'Speakerphone', groupId: 'a' },
+  ];
+  // Fake speech engine: records which mic track it was started with.
+  window.__srStarts = [];
+  class FakeSR { start(track) { window.__srStarts.push(track ? track.__mic : 'browser-default'); setTimeout(() => this.onstart?.(), 10); }
+    stop() { setTimeout(() => this.onend?.(), 10); } abort() {} }
+  window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR;
   window.__makeTracker = async () => ({ detect: () => [{ x: 0.85, y: 0.42, w: 0.15, h: 0.2, score: 1, facing: 0.9 }], close() {} });
 });
 
@@ -66,6 +86,12 @@ try {
   await page.evaluate(() => window.__app.applyVoice({ cmd: 'follow-off' }));
   assert.equal(await page.getAttribute('#btnFollow', 'aria-pressed'), 'false');
 
+  // Voice listens on the working mic (Speakerphone), not the dead Default
+  await page.click('#btnVoice');
+  await page.waitForFunction(() => window.__srStarts.length > 0, null, { timeout: 10000 });
+  assert.equal(await page.evaluate(() => window.__srStarts[0]), 'Speakerphone', 'voice uses the live mic');
+  await page.click('#btnVoice');
+
   // Prompter: paste a script, play, it scrolls
   await page.click('#btnMore');
   await page.click('[role="tab"][data-tab="script"]');
@@ -91,6 +117,10 @@ try {
   await page.click('[role="tab"][data-tab="settings"]');
   await page.selectOption('#setFraming', 'left');
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('gimbal-app.settings')).framing), 'left');
+  await page.click('#micTest');
+  await page.waitForFunction(() => document.querySelectorAll('#micResults .item').length === 2, null, { timeout: 10000 });
+  const micRows = await page.$$eval('#micResults .item', (n) => n.map((x) => x.textContent));
+  assert.match(micRows[0], /Default: DEAD/); assert.match(micRows[1], /Speakerphone: works/);
   await page.click('[data-close]');
 
   // Manifest + service worker reachable

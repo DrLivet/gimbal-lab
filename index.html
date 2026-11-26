@@ -97,6 +97,13 @@
       <label>DJI method <select id="setMethod"><option value="speed">Speed command (default)</option><option value="step">Small steps</option></select></label>
       <label>Voice wake word <input id="setWake" placeholder="gimbal"></label>
     </div>
+    <h3>Microphone</h3>
+    <p class="hint">Used for voice commands and recordings. Automatic skips a microphone that gives no sound at all (like a failing bottom mic). <span id="micInfo"></span></p>
+    <div class="row wrap">
+      <label class="grow">Microphone <select id="setMic"><option value="auto">Automatic (first one that works)</option></select></label>
+      <button id="micTest">Test microphones</button>
+    </div>
+    <div id="micResults" class="list"></div>
     <p class="hint">Something not moving? Open the <a href="lab.html">Gimbal Lab</a> to test the connection step by step.</p>
     <p class="hint small" id="buildInfo"></p>
   </section>

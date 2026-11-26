@@ -5,7 +5,7 @@ export const DEFAULT_SETTINGS = {
   framing: 'center', speed: 1, tiltEnabled: true, trackMode: 'face',
   hfov: 66, deadzone: 0.06, maxSpeed: 60,
   method: 'speed', invertPan: false, invertTilt: false,
-  voiceWake: 'gimbal',
+  voiceWake: 'gimbal', micId: 'auto',
   autoSwitch: true, switchHold: 3,
   obsUrl: 'ws://localhost:4455', obsPassword: '', obsScenes: {},
   script: '', prompterSpeed: 40, prompterSize: 34, prompterMirror: false,

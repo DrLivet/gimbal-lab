@@ -7,6 +7,7 @@ import { Tracker } from './tracker.js';
 import { Voice } from './voice.js';
 import { PRESETS, loadCustom, saveCustom, play as playMove, MoveRecorder } from './moves.js';
 import { Obs } from './obs.js';
+import { findWorkingMic, testAllMics } from './mic.js';
 import { load as loadSettings, save as saveSettings } from './store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -89,10 +90,9 @@ class Rig {
     const video = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' };
     Object.assign(video, { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } });
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: this.index === 0 });
+      this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
     } catch (e) {
-      try { this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false }); }
-      catch {
+      {
         this.statusEl.textContent = 'Camera busy or blocked. Close other camera apps; retrying…';
         if (!this.retried) { this.retried = true; setTimeout(() => this.startCamera(deviceId), 2000); }
         return;
@@ -267,11 +267,13 @@ function recenter() {
 }
 
 let recorder = null; let chunks = [];
-function toggleRecord() {
+async function toggleRecord() {
   if (recorder) { recorder.stop(); return; }
   const stream = active.stream;
   if (!stream) return toast('No camera yet');
-  const tracks = [...stream.getVideoTracks(), ...(rigs[0].stream?.getAudioTracks() || [])];
+  let audio = [];
+  try { audio = [(await getMic()).track]; } catch { toast('No microphone — recording picture only'); }
+  const tracks = [...stream.getVideoTracks(), ...audio];
   const types = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9,opus', 'video/webm'];
   const mimeType = types.find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
   try { recorder = new MediaRecorder(new MediaStream(tracks), { mimeType, videoBitsPerSecond: 12e6 }); }
@@ -384,17 +386,37 @@ function applyVoice(c) {
   };
   map[c.cmd]?.();
 }
+// ---------- microphone ----------
+// One shared mic for voice and recording: the first input that isn't dead (see mic.js).
+let mic = null; let micPromise = null;
+async function getMic(force = false) {
+  if (!force && mic?.track?.readyState === 'live') return mic;
+  micPromise ??= findWorkingMic(S.micId).then((m) => { mic = m; micPromise = null; $('micInfo').textContent = `Using: ${m.label}`; return m; })
+    .catch((e) => { micPromise = null; throw e; });
+  return micPromise;
+}
+function releaseMic() { mic?.stream.getTracks().forEach((t) => t.stop()); mic = null; }
+
 voice.addEventListener('heard', (e) => {
   const { text, command } = e.detail;
   if (command) { applyVoice(command); toast(`🎙 ${text}`); }
+  else toast(voice.wake ? `🎙 Heard “${text}” — start with “${voice.wake}”` : `🎙 Heard “${text}”`, 3000);
 });
-voice.addEventListener('error', (e) => { if (e.detail === 'not-allowed') { toast('Microphone blocked for voice control'); setVoice(false); } });
-function setVoice(on) {
+voice.addEventListener('error', (e) => {
+  if (e.detail === 'not-allowed') { toast('Microphone blocked for voice control'); setVoice(false); }
+  else if (e.detail === 'audio-capture') toast('Voice: no sound from the microphone. Try Settings → Test microphones.', 4000);
+  else if (e.detail === 'network') toast('Voice needs an internet connection', 3000);
+});
+async function setVoice(on) {
   if (on && !voice.supported) return toast('Voice control needs Chrome');
   voice.wake = S.voiceWake || '';
-  if (on) voice.start(); else voice.stop();
   $('btnVoice').setAttribute('aria-pressed', String(on && voice.supported));
-  if (on) toast(voice.wake ? `Listening — say “${voice.wake} follow me”` : 'Listening');
+  if (!on) { voice.stop(); return; }
+  let m = null;
+  try { m = await getMic(); } catch { /* fall back to the browser's own mic */ }
+  voice.start(m?.track || null);
+  const where = m ? ` (mic: ${m.label})` : '';
+  toast(voice.wake ? `Listening — say “${voice.wake} follow me”${where}` : `Listening${where}`, 3500);
 }
 
 function setFraming(f) { S.framing = f; persist(); $('setFraming').value = f; rigs.forEach((r) => r.applySettings()); toast(`Framing: ${f === 'center' ? 'middle' : `${f} third`}`); }
@@ -496,7 +518,7 @@ $('obsConnect').onclick = async () => {
 // ---------- sheet + settings wiring ----------
 const sheet = $('sheetMore');
 function openSheet(tab = 'moves') {
-  renderMoves(); renderObsMap();
+  renderMoves(); renderObsMap(); if (tab === 'settings') fillMics().catch(() => {});
   sheet.querySelectorAll('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   sheet.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== tab; });
   if (!sheet.open) sheet.showModal();
@@ -525,6 +547,31 @@ bind('setInvPan', 'invertPan', { type: 'checked', after: reapply });
 bind('setInvTilt', 'invertTilt', { type: 'checked', after: reapply });
 bind('setMethod', 'method', { after: reapply });
 bind('setWake', 'voiceWake', { after: () => { voice.wake = S.voiceWake; } });
+async function fillMics() {
+  const sel = $('setMic'); const keep = S.micId || 'auto';
+  const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  sel.innerHTML = ''; sel.add(new Option('Automatic (first one that works)', 'auto'));
+  ins.forEach((d, i) => sel.add(new Option(d.label || `Microphone ${i + 1}`, d.deviceId)));
+  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : 'auto';
+}
+$('setMic').addEventListener('change', async () => {
+  S.micId = $('setMic').value; persist(); releaseMic();
+  try { const m = await getMic(true); toast(`Mic: ${m.label}`); if (voice.on) { voice.stop(); voice.start(m.track); } } catch { toast('That microphone is unavailable'); }
+});
+$('micTest').onclick = async () => {
+  const out = $('micResults'); out.textContent = 'Talk now… testing each microphone';
+  releaseMic();
+  try {
+    const res = await testAllMics(1500);
+    out.innerHTML = '';
+    for (const r of res) {
+      const row = document.createElement('div'); row.className = 'item';
+      row.textContent = `${r.label}: ${r.error ? 'unavailable' : r.alive ? `works (loudest ${r.peakDb} dB)` : 'DEAD — no sound at all'}`;
+      out.append(row);
+    }
+  } catch (e) { out.textContent = `Test failed: ${e.message}`; }
+  if (voice.on) setVoice(true);
+};
 bind('scriptText', 'script', { after: () => { if (!pr.el.hidden) pr.text.textContent = S.script; } });
 bind('prSpeed', 'prompterSpeed', { type: 'number' });
 bind('prSize', 'prompterSize', { type: 'number', after: prompterStyle });
@@ -570,9 +617,12 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     if (recorder) return; // keep recording if a take is running
     for (const r of rigs) { r.stream?.getTracks().forEach((t) => t.stop()); r.stream = null; r.paused = true; }
+    if (voice.on) { voice.stop(); voice.resume = true; }
+    releaseMic();
   } else {
     keepAwake();
     for (const r of rigs) if (r.paused) { r.paused = false; r.startCamera(r.camSel.value || undefined); }
+    if (voice.resume) { voice.resume = false; setVoice(true); }
   }
 });
 

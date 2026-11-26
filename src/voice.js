@@ -61,10 +61,12 @@ export class Voice extends EventTarget {
     this.rec = new SR();
     this.rec.continuous = true;
     this.rec.interimResults = false;
+    this.track = null;   // audio track from a chosen mic (Chrome 13x+); null = browser default mic
+    this.useTrack = true;
     this.rec.lang = navigator.language || 'en-US';
     this.rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (!e.results[i].isFinal) continue;
+        if (!e.results[i].isFinal) continue;  // final results only
         const text = e.results[i][0].transcript.trim();
         const part = afterWakeWord(text, this.wake);
         const c = part ? parseCommand(part) : null;
@@ -72,10 +74,28 @@ export class Voice extends EventTarget {
       }
     };
     this.rec.onerror = (e) => this.dispatchEvent(new CustomEvent('error', { detail: e.error }));
+    this.rec.onstart = () => this.dispatchEvent(new Event('listening'));
     // Chrome stops listening after silence; keep it going while switched on.
-    this.rec.onend = () => { if (this.on) setTimeout(() => { try { this.rec.start(); } catch { /* already */ } }, 250); };
+    this.rec.onend = () => { if (this.on) setTimeout(() => this._start(), 250); };
   }
 
-  start() { if (!this.supported) return false; this.on = true; try { this.rec.start(); } catch { /* already */ } return true; }
+  // Starts recognition, feeding it the chosen mic's track when the browser allows that
+  // (Web Speech API start(audioTrack)). Falls back to the browser's default mic otherwise.
+  _start() {
+    const t = this.useTrack && this.track && this.track.readyState === 'live' ? this.track : null;
+    try {
+      if (t) this.rec.start(t); else this.rec.start();
+      this.usingTrack = !!t;
+    } catch (e) {
+      if (t && e.name !== 'InvalidStateError') { this.useTrack = false; this._start(); }  // older Chrome: no track support
+    }
+  }
+
+  start(track = null) {
+    if (!this.supported) return false;
+    this.track = track; this.on = true; this._start();
+    return true;
+  }
+
   stop() { this.on = false; try { this.rec?.stop(); } catch { /* ignore */ } }
 }
