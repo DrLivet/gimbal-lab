@@ -44,7 +44,7 @@ export function handAngle(lm) {
 // Fires 'turn' when one visible hand twists by at least `min` degrees within `within` seconds
 // (like turning a dial), then waits `cooldown` seconds. Gaps of a frame or two are fine.
 export class TwistDetector {
-  constructor({ min = 70, within = 1.6, settle = 0.25, cooldown = 3 } = {}) {
+  constructor({ min = 80, within = 1.6, settle = 0.35, cooldown = 4 } = {}) {
     Object.assign(this, { min, within, settle, cooldown });
     this.hist = []; this.blockedUntil = -Infinity; this.lastT = -Infinity;
   }
@@ -100,7 +100,14 @@ export class GestureWatcher {
     if (!this.task || video.readyState < 2 || !video.videoWidth) return null;
     const ts = Math.max(performance.now(), this.lastTs + 1); this.lastTs = ts;
     const r = this.task.recognizeForVideo(video, ts);
-    if (r.landmarks?.[0]?.length > 9) this.angle = handAngle(r.landmarks[0]);
+    // Hand size (fraction of frame width): a hand filling the picture is someone handling
+    // the phone/gimbal right at the lens, not a gesture.
+    this.handSize = 0;
+    if (r.landmarks?.[0]?.length > 9) {
+      const xs = r.landmarks[0].map((p) => p.x); const ys = r.landmarks[0].map((p) => p.y);
+      this.handSize = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      this.angle = this.handSize < 0.45 ? handAngle(r.landmarks[0]) : null;
+    }
     for (const g of r.gestures || []) {
       const top = g[0];
       if (top && top.score > 0.6 && GESTURES[top.categoryName]) return GESTURES[top.categoryName];

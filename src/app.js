@@ -189,6 +189,7 @@ class Rig {
       this.setStatus(`${g.name} connected`);
       toast(`${g.name} connected`);
       this.applySettings();
+      this.quietUntil = performance.now() + 6000;   // hands are on the rig right after connecting
       // Check directions, then start following straight away (tap Follow to stop).
       setTimeout(async () => {
         if (S.autoCheckDirs !== false) await this.checkDirections();
@@ -229,6 +230,7 @@ class Rig {
       beep[r.reached ? 'ok' : 'nope']();
     } catch (e) { this.setStatus(e.message); }
     this.calibrating = false; this.rotating = false; this.btnRotate.disabled = false;
+    this.quietUntil = performance.now() + 4000;
     // The camera picture changed shape: re-check directions (also brings follow back).
     if (S.autoCheckDirs !== false) { this.follow.reset(); this.applySettings(); await this.checkDirections(); }
     if (wasFollowing && !this.following) await this.setFollowing(true);
@@ -444,7 +446,9 @@ function handsTick(now) {
   let sign = null;
   try { sign = hands.watcher.detect(active.video); } catch { /* frame not ready */ }
   // A twist (turning a knob) switches portrait/landscape on a DJI phone gimbal.
-  if (hands.twist.update(hands.watcher.angle ?? null, now / 1000) === 'turn' && active.gimbal?.om && !active.rotating) {
+  // Ignore gestures for a few seconds after connecting / turning / checking: hands are on the rig.
+  const quiet = active.rotating || active.calibrating || now < (active.quietUntil || 0);
+  if (hands.twist.update(quiet ? null : (hands.watcher.angle ?? null), now / 1000) === 'turn' && active.gimbal?.om && !active.rotating) {
     beep.ok(); toast('🔄 Turning the phone'); active.rotatePhone(); return;
   }
   const fired = hands.hold.update(sign, now / 1000);
