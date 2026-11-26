@@ -71,6 +71,12 @@ What follows was the spec; all of it is in place except multi-camera use on real
   - Unpair "OM4…" from Android's Bluetooth settings (it also advertises as a HID remote).
   - Gimbal unfolded and in Follow mode.
 
+## App status (2026-11-26 evening)
+- Live at https://drlivet.github.io/gimbal-lab/ (main, GitHub Pages). Installed on the owner's S24 as a WebAPK (`org.chromium.webapk.ac09b56b3cddb2663_v2`). Mac: opened in Chrome; owner to click Install.
+- Owner wants real installed apps (Android APK + Mac app, files on device, not GitHub-hosted) **later**; keep the web app while testing. Note: Android WebView has no Web Bluetooth, so an APK needs a TWA (Chrome engine) or a native BLE bridge.
+- **Microphone:** the S24 Ultra bottom mic is failing. Measured via Chrome remote debugging (adb forward tcp:9222 localabstract:chrome_devtools_remote): input "Default" = digital silence (-140 dB), "Speakerphone" = hears (peaks -10 dB), "Headset earpiece" = raw only. `src/mic.js` picks the first non-silent input; voice uses Web Speech `start(audioTrack)` (Chrome 158 supports it) with fallback; recordings use the same mic. **Voice recognition from that track is not yet confirmed on the phone** (one try started but heard nothing; owner may not have been speaking).
+- Phone remote-debug helper used for these checks: Runtime.evaluate over the DevTools websocket on :9222.
+
 ## DJI gimbal results (2026-11-26, from the Mac with `tools/om4_test.py`)
 - **The owner's DJI gimbal is an OM 5** (BLE name `OM5-8055QE`), not an OM 4. Same DUML protocol and FFF0 service.
 - macOS keeps it connected at system level (paired as a remote), so it doesn't advertise; the test retrieves it with CoreBluetooth `retrieveConnectedPeripheralsWithServices` (FFF0). On the phone, unpair it from Android Bluetooth settings first if Chrome can't see it.
