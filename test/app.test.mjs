@@ -98,11 +98,14 @@ try {
   await page.evaluate(() => window.__app.applyVoice({ cmd: 'follow-off' }));
   assert.equal(await page.getAttribute('#btnFollow', 'aria-pressed'), 'false');
 
-  // Voice listens on the working mic (Speakerphone), not the dead Default
-  await page.click('#btnVoice');
+  // Voice is on from the start (hands-free) and listens on the working mic (Speakerphone),
+  // not the dead Default. The button turns it off and the choice is remembered.
   await page.waitForFunction(() => window.__srStarts.length > 0, null, { timeout: 10000 });
   assert.equal(await page.evaluate(() => window.__srStarts[0]), 'Speakerphone', 'voice uses the live mic');
+  assert.equal(await page.getAttribute('#btnVoice', 'aria-pressed'), 'true', 'voice on without a tap');
   await page.click('#btnVoice');
+  assert.equal(await page.getAttribute('#btnVoice', 'aria-pressed'), 'false');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('gimbal-app.settings')).voiceOn), false, 'off is remembered');
 
   // Record: picture + sound, saved as a file on the device (Downloads when no folder is picked)
   await page.click('#btnRecord');

@@ -25,10 +25,13 @@ export function orderInputs(inputs, preferredId) {
 
 const RAW = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
 
+// Returns { alive, peakDb }, or { alive: null } when the browser won't run audio processing yet
+// (before the first tap on the screen) so the mic can't be measured.
 async function listen(stream, ms) {
   const ac = new AudioContext();
   try {
-    await ac.resume();
+    await Promise.race([ac.resume(), new Promise((r) => setTimeout(r, 300))]);
+    if (ac.state !== 'running') return { alive: null, peakDb: null };
     const an = ac.createAnalyser(); an.fftSize = 2048;
     ac.createMediaStreamSource(stream).connect(an);
     const buf = new Float32Array(an.fftSize);
@@ -55,6 +58,7 @@ export async function findWorkingMic(preferredId = 'auto', { ms = 700 } = {}) {
     inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
   }
   const tried = [];
+  const KEY = 'gimbal.micWorking';
   for (const d of orderInputs(inputs, preferredId)) {
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: d.deviceId }, ...RAW } }); }
@@ -62,10 +66,26 @@ export async function findWorkingMic(preferredId = 'auto', { ms = 700 } = {}) {
     const r = await listen(stream, ms);
     tried.push({ label: d.label || d.deviceId, ...r });
     if (r.alive) {
+      try { localStorage.setItem(KEY, d.deviceId); } catch { /* ignore */ }
       const track = stream.getAudioTracks()[0];
       return { stream, track, deviceId: d.deviceId, label: d.label || 'Microphone', tried };
     }
     stream.getTracks().forEach((t) => t.stop());
+    if (r.alive === null) {
+      // Can't measure yet: use the mic that worked last time, else a speaker-type mic
+      // (the S24's "Speakerphone" input uses the working top mic), else the user's choice.
+      let id = null; try { id = localStorage.getItem(KEY); } catch { /* ignore */ }
+      const pick = (preferredId && preferredId !== 'auto' && inputs.find((x) => x.deviceId === preferredId))
+        || inputs.find((x) => x.deviceId === id)
+        || inputs.find((x) => /speaker/i.test(x.label)) || inputs[0];
+      if (pick) {
+        try {
+          const st = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: pick.deviceId }, ...RAW } });
+          return { stream: st, track: st.getAudioTracks()[0], deviceId: pick.deviceId, label: `${pick.label || 'Microphone'} (not checked yet)`, tried, unchecked: true };
+        } catch { /* fall through */ }
+      }
+      break;
+    }
   }
   // Nothing passed: fall back to the default input so at least something is open.
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

@@ -546,7 +546,7 @@ voice.addEventListener('error', (e) => {
   else if (e.detail === 'audio-capture') toast('Voice: no sound from the microphone. Try Settings → Test microphones.', 4000);
   else if (e.detail === 'network') toast('Voice needs an internet connection', 3000);
 });
-async function setVoice(on) {
+async function setVoice(on, { quiet = false } = {}) {
   if (on && !voice.supported) return toast('Voice control needs Chrome');
   voice.wake = S.voiceWake || '';
   $('btnVoice').setAttribute('aria-pressed', String(on && voice.supported));
@@ -555,7 +555,7 @@ async function setVoice(on) {
   try { m = await getMic(); } catch { /* fall back to the browser's own mic */ }
   voice.start(m?.track || null);
   const where = m ? ` (mic: ${m.label})` : '';
-  toast(voice.wake ? `Listening — say “${voice.wake} follow me”${where}` : `Listening${where}`, 3500);
+  if (!quiet) toast(voice.wake ? `Listening — say “${voice.wake} follow me”${where}` : `Listening${where}`, 3500);
 }
 
 function setFraming(f) { S.framing = f; persist(); $('setFraming').value = f; rigs.forEach((r) => r.applySettings()); toast(`Framing: ${f === 'center' ? 'middle' : `${f} third`}`); }
@@ -749,7 +749,8 @@ $('buildInfo').textContent = `Gimbal Studio ${VERSION}`;
 $('btnFollow').onclick = () => toggleFollow();
 $('btnRecord').onclick = toggleRecord;
 $('btnCenter').onclick = recenter;
-$('btnVoice').onclick = () => setVoice(!voice.on);
+// The Voice button switches always-on listening off/on and remembers the choice.
+$('btnVoice').onclick = () => { S.voiceOn = !voice.on; persist(); setVoice(S.voiceOn); };
 $('btnPrompter').onclick = () => prompterShow(pr.el.hidden);
 $('btnMore').onclick = () => openSheet();
 
@@ -795,5 +796,16 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
   await addRig();
   keepAwake();
   requestAnimationFrame(frame);
+  // Hands-free: listen from the start. If the browser wants a tap first, the first touch
+  // anywhere starts it.
+  if (S.voiceOn !== false && voice.supported) {
+    setVoice(true).catch(() => {});
+    const kick = () => {
+      if (S.voiceOn === false) return;
+      if (mic?.unchecked) { voice.stop(); releaseMic(); setVoice(true, { quiet: true }); }   // now we can measure it
+      else if (!voice.listening) setVoice(true);
+    };
+    addEventListener('pointerdown', kick, { once: true });
+  }
   window.__app = { checkDirections: () => active.checkDirections(), rigs, toggleFollow, applyVoice, hands, get recording() { return !!recorder; }, get counting() { return !!countdown; }, prompterShow, prompterPlay, get active() { return active; }, settings: S };
 })();

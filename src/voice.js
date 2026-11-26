@@ -77,9 +77,9 @@ export class Voice extends EventTarget {
       }
     };
     this.rec.onerror = (e) => this.dispatchEvent(new CustomEvent('error', { detail: e.error }));
-    this.rec.onstart = () => this.dispatchEvent(new Event('listening'));
+    this.rec.onstart = () => { this.listening = true; this.dispatchEvent(new Event('listening')); };
     // Chrome stops listening after silence; keep it going while switched on.
-    this.rec.onend = () => { if (this.on) setTimeout(() => this._start(), 250); };
+    this.rec.onend = () => { this.listening = false; if (this.on) setTimeout(() => this._start(), 250); };
   }
 
   // Starts recognition, feeding it the chosen mic's track when the browser allows that

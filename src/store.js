@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = {
   autoSwitch: true, switchHold: 3,
   obsUrl: 'ws://localhost:4455', obsPassword: '', obsScenes: {},
   script: '', prompterSpeed: 40, prompterSize: 34, prompterMirror: false,
-  showOverlay: true, gestures: true, sounds: true, autoCheckDirs: true,
+  showOverlay: true, gestures: true, sounds: true, autoCheckDirs: true, voiceOn: true,
 };
 
 export function load() {
