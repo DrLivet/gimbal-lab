@@ -92,8 +92,13 @@ class Rig {
       this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: this.index === 0 });
     } catch (e) {
       try { this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false }); }
-      catch { this.statusEl.textContent = `Camera blocked: ${e.message}`; return; }
+      catch {
+        this.statusEl.textContent = 'Camera busy or blocked. Close other camera apps; retrying…';
+        if (!this.retried) { this.retried = true; setTimeout(() => this.startCamera(deviceId), 2000); }
+        return;
+      }
     }
+    this.retried = false; this.statusEl.textContent = '';
     this.video.srcObject = this.stream;
     const track = this.stream.getVideoTracks()[0];
     const fm = track?.getSettings?.().facingMode;
@@ -560,7 +565,16 @@ function frame(now) {
 
 // Keep the screen awake while the app is open (phones dim mid-take otherwise).
 async function keepAwake() { try { await navigator.wakeLock?.request('screen'); } catch { /* not allowed yet */ } }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
+// Release cameras in the background (another app or tab may need them) and take them back on return.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (recorder) return; // keep recording if a take is running
+    for (const r of rigs) { r.stream?.getTracks().forEach((t) => t.stop()); r.stream = null; r.paused = true; }
+  } else {
+    keepAwake();
+    for (const r of rigs) if (r.paused) { r.paused = false; r.startCamera(r.camSel.value || undefined); }
+  }
+});
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
