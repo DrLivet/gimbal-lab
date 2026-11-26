@@ -1,0 +1,99 @@
+# Handover: gimbal-lab (2026-11-26)
+
+Read this first. It covers what the owner wants, what exists, what has been tried on the real hardware, and what to do next.
+
+## The owner and the goal
+
+- The owner is not a developer and usually works from a **Samsung Galaxy S24** and a **Mac laptop**. Keep instructions short and in plain language. Do the work rather than describing it.
+- Hardware:
+  - **DJI OM 4** phone gimbal, about 4 years old. It holds the S24.
+  - **FeiyuTech SCORP-C** camera gimbal. Its Bluetooth name is **`FY_SCORP_C_31`**. The official **Feiyu SCORP** app on the S24 connects to it, moves it and calibrates it.
+- **What they want:** their own **app**, usable on the phone *and* the Mac, with every recommended feature:
+  1. Control the gimbals from the app, with a joystick and recenter.
+  2. **Follow me / keep me in frame**, including during a live stream.
+  3. **Voice control.**
+  4. Saved, repeatable camera moves (slow pan, reveal, timelapse pan).
+  5. A prompter/script overlay. They had an earlier prompter app that beat the Elgato prompter software.
+  6. A **desk studio for live streaming:** both gimbals on the desk with two cameras. A Mac runs the app and OBS, both gimbals track the owner, and the app switches to the camera they are facing.
+- Order agreed with the owner: **OM 4 first**, then add the SCORP-C.
+
+## Architecture decision
+
+An installable **web app (PWA)** using **Web Bluetooth**, hosted on **GitHub Pages**. One codebase runs in Chrome on Android and on the Mac; Safari and iPhone do not support Web Bluetooth.
+
+The live-stream camera conflict is solved by the **Mac being the director**:
+- The S24 connects over USB in webcam mode. The camera on the SCORP-C connects through an HDMI capture stick.
+- The app watches both feeds, steers both gimbals, and switches OBS scenes over the OBS WebSocket (`ws://localhost:4455`).
+- macOS lets Chrome and OBS share a camera.
+
+## Repo layout (branch `claude/vigilant-lamport-624791`, PR DrLivet/gimbal-lab#1)
+
+| Path | What | State |
+|---|---|---|
+| `lab.html`, `styles.css`, `src/lab.js` | **Gimbal Lab** diagnostics page: OM 4 wake-up ladder plus a generic BLE explorer | done; tested against a simulated gimbal |
+| `lib/duml.js` | DJI DUML framing (crc8 seed 0x77; crc16 seed 0x3692 over the whole packet), parser, decoder | done; verified against 3 real Mimo packets |
+| `lib/om.js` | OM 4 BLE driver (service FFF0, notify FFF4, write FFF5) and `LADDER` of wake-up steps | done |
+| `lib/ble.js`, `lib/explorer.js` | Web Bluetooth helpers; explorer for unknown devices | done |
+| `lib/gimbal.js` | the app-facing gimbal interface (`setVelocity`, `moveBy`, `recenter`, `offset`), with `DjiOm4` implemented and a `MODELS` registry where SCORP-C plugs in | done, untested on hardware |
+| `src/follow.js` | follow-me controller (framing presets, deadzone with hysteresis, smoothing, lost-person stop), `pickTarget`, `facingScore` | done, unit tested |
+| `src/tracker.js` | MediaPipe FaceDetector (`face`) or PoseLandmarker (`body`) on a `<video>` | done, not yet run in a browser |
+| `src/voice.js` | speech commands behind the wake word "gimbal" (stops "all right" panning the camera mid-stream) | done, unit tested |
+| `src/moves.js` | preset and recorded moves, legs split to the 25.5 s per-command limit | done, unit tested |
+| `src/obs.js` | OBS WebSocket v5 client (auth, scene list, switch) | done, untested against OBS |
+| `src/store.js` | settings stored in localStorage | done |
+| `vendor/` | MediaPipe tasks-vision 1.2.3 (wasm) plus face and pose models, vendored for offline use | done |
+| `test/*.mjs` | `node test/<name>.test.mjs` for duml, follow, voice and moves; `page.test.mjs` runs the lab in headless Chromium with a mock gimbal (needs Playwright) | all passing |
+
+### Still to build (the main app)
+- `index.html` plus `src/app.js` and `app.css`: the main app screen.
+  - **Rigs:** each rig is a camera, a gimbal, a tracker and a follow controller. The phone shows one full-screen rig; the Mac shows a grid of 2 or more.
+  - Per rig: camera picker, gimbal connect, Follow toggle, and an overlay showing the face box and framing target.
+  - Dock: Follow, Record (MediaRecorder, then download), virtual joystick, Recenter, Voice on/off, Prompter, Moves.
+  - Sheets: Moves (presets, record a custom move, play), Prompter (script, speed, size, mirror), Studio (OBS connect, map cameras to scenes, auto-switch by `facingScore` with a hold time), Settings (framing, speed, tilt on/off, face/body, invert pan/tilt, step or speed method, wake word).
+  - Link to `lab.html`.
+- PWA: `manifest.webmanifest`, `sw.js` (network-first app-shell cache), PNG icons (PIL is available).
+- Extend `test/` with an app smoke test: Chromium with `--use-fake-device-for-media-stream`, the mock gimbal from `test/mock-gimbal.js`, and a stubbed tracker.
+- Pan/tilt direction differs between the selfie and back cameras. Flip pan automatically for the selfie camera and keep the manual invert toggles.
+
+## What happened on the real OM 4 (important)
+
+- On the S24 in Chrome, the om-research demo page (om-research.flab.dev) **connected**, and correctly framed rotate commands went out with no write errors. **The gimbal did not move.**
+- That demo uses a fixed seq of 1 and attr 0x00, sends no heartbeat, and ignores everything the gimbal sends back.
+- Mimo's own packets use an incrementing seq and attr 0x40, and Mimo sends heartbeats continuously (`04/50 01 04 05`, `00/00 02 00`).
+- **Gimbal Lab's "Run test"** walks through these additions one by one, and stores the first step that works in `localStorage['om4.wakeStep']`. `lib/gimbal.js` replays it on connect.
+- **Not yet run on hardware**, because the owner hasn't merged the PR or turned on Pages yet.
+- Things the owner should check if it still doesn't move:
+  - Force-stop Mimo.
+  - Unpair "OM4…" from Android's Bluetooth settings (it also advertises as a HID remote).
+  - Gimbal unfolded and in Follow mode.
+
+## Next steps
+
+### A. Owner to-dos (the GitHub side)
+1. Merge PR DrLivet/gimbal-lab#1 (mark it ready for review, then merge).
+2. Turn on GitHub Pages: **Settings → Pages → Deploy from branch → `main` / root**. The URL will be https://drlivet.github.io/gimbal-lab/ (the lab is at `/lab.html`).
+3. Open it in Chrome on the S24, connect the OM 4, tap **Run test**, then **Copy log** and paste it to Claude.
+
+### B. On the Mac session (needs the phone on USB). This is why this handover exists.
+Prereqs on the phone: Developer options on (tap Build number 7 times), then **USB debugging** on. Accept the "Allow USB debugging" prompt.
+
+1. Install adb: `brew install android-platform-tools`. If Homebrew is missing, install it first, or download Google's platform-tools zip.
+2. `adb devices`: the S24 should be listed as `device`.
+3. **Copy the Feiyu app off the phone** to learn the SCORP-C protocol (interoperability with the owner's own device):
+   - `adb shell pm list packages | grep -i -E "feiyu|scorp"`
+   - `adb shell pm path <package>`, then `adb pull` every APK path it prints. It may be split APKs.
+   - Decompile with **jadx** (`brew install jadx`). Search for `BluetoothGatt`, `UUID.fromString`, `writeCharacteristic`, `setCharacteristicNotification`, and the packet builder or checksum code.
+   - Goal: the service and characteristic UUIDs, the packet framing and checksum, and the commands for joystick/speed, recenter, mode and calibration.
+   - Write the result as `lib/feiyu.js` implementing the same interface as `DjiOm4` in `lib/gimbal.js`, and enable it in `MODELS`.
+4. **Bluetooth traffic captures** (ground truth for both gimbals):
+   - Turn on Developer options → **Enable Bluetooth HCI snoop log**, then switch Bluetooth off and on.
+   - Use the Feiyu app's joystick (right, left, up, down, about 5 s apart), recenter, lock mode on and off. Then use DJI Mimo's joystick with the OM 4.
+   - `adb bugreport bugreport.zip`. The log is at `FS/data/misc/bluetooth/logs/btsnoop_hci.log` inside the zip. Parse it with Wireshark/tshark, or a small Python btsnoop parser filtering ATT writes and notifications.
+   - For the OM 4, this shows exactly what Mimo sends before a move works.
+5. Optional: Chrome on the Mac can also run Gimbal Lab against either gimbal (Mac Bluetooth). Its Explore tab lists the SCORP-C's services.
+
+## Conventions
+- Commit to `claude/vigilant-lamport-624791` and push. PR DrLivet/gimbal-lab#1 is open (draft).
+- Plain JS ES modules, no build step, so GitHub Pages serves the repo as is.
+- Run all `test/*.test.mjs` before pushing.
+- Credit om-research (MIT) for the OM protocol.
