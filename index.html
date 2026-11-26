@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1114">
+<title>Gimbal Studio</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="rigs" class="rigs"></div>
+
+<div id="prompter" class="prompter" hidden>
+  <div class="prompter-text" id="prompterText"></div>
+  <div class="prompter-line"></div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<nav class="dock" aria-label="Controls">
+  <button id="btnFollow" class="dock-btn" aria-pressed="false" title="Follow me (F)"><span class="ico">◎</span><span>Follow</span></button>
+  <button id="btnRecord" class="dock-btn" aria-pressed="false" title="Record (R)"><span class="ico rec">●</span><span>Record</span></button>
+  <div id="joy" class="joy" role="slider" aria-label="Joystick: drag to pan and tilt" tabindex="0"><div class="knob"></div></div>
+  <button id="btnCenter" class="dock-btn" title="Recenter (C)"><span class="ico">⌖</span><span>Center</span></button>
+  <button id="btnVoice" class="dock-btn" aria-pressed="false" title="Voice control (V)"><span class="ico">🎙</span><span>Voice</span></button>
+  <button id="btnPrompter" class="dock-btn" aria-pressed="false" title="Prompter (P)"><span class="ico">≡</span><span>Script</span></button>
+  <button id="btnMore" class="dock-btn" title="Moves, studio and settings"><span class="ico">⋯</span><span>More</span></button>
+</nav>
+
+<!-- Sheets -->
+<dialog id="sheetMore" class="sheet">
+  <header><h2>More</h2><button class="close" data-close>Done</button></header>
+  <div class="sheet-tabs" role="tablist">
+    <button role="tab" data-tab="moves" aria-selected="true">Moves</button>
+    <button role="tab" data-tab="script" aria-selected="false">Script</button>
+    <button role="tab" data-tab="studio" aria-selected="false">Studio</button>
+    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+  </div>
+
+  <section data-panel="moves">
+    <p class="hint">Smooth, repeatable camera moves. Say “gimbal play move slow” to start one by voice.</p>
+    <div id="movesList" class="list"></div>
+    <h3>Record your own</h3>
+    <p class="hint">Tap Start, then use the joystick to aim and tap <b>Add point</b> at each spot. Tap Save when done.</p>
+    <div class="row wrap">
+      <button id="moveRecStart">Start</button>
+      <button id="moveRecAdd" disabled>Add point</button>
+      <input id="moveRecName" placeholder="Name" aria-label="Move name" disabled>
+      <button id="moveRecSave" class="primary" disabled>Save</button>
+    </div>
+  </section>
+
+  <section data-panel="script" hidden>
+    <p class="hint">Paste your script. It scrolls over the top of the picture, close to the lens. Say “gimbal start script” / “gimbal pause script”, “faster”, “slower”.</p>
+    <textarea id="scriptText" rows="8" placeholder="Paste your script here…" aria-label="Script"></textarea>
+    <div class="row wrap">
+      <label class="grow">Speed <input id="prSpeed" type="range" min="5" max="150" step="1"></label>
+      <label class="grow">Text size <input id="prSize" type="range" min="18" max="72" step="1"></label>
+      <label class="check"><input id="prMirror" type="checkbox"> Mirror (for a glass prompter)</label>
+    </div>
+    <div class="row wrap">
+      <button id="prPlay" class="primary">Play</button>
+      <button id="prRestart">Back to start</button>
+    </div>
+  </section>
+
+  <section data-panel="studio" hidden>
+    <p class="hint">For live streaming on the Mac: add a camera per gimbal, connect OBS, and the app switches to the camera you're facing.</p>
+    <div class="row wrap"><button id="addRig">Add another camera</button></div>
+    <h3>OBS</h3>
+    <p class="hint">In OBS: Tools → WebSocket Server Settings → Enable. Copy the password here.</p>
+    <div class="row wrap">
+      <label class="grow">Address <input id="obsUrl"></label>
+      <label class="grow">Password <input id="obsPassword" type="password" autocomplete="off"></label>
+      <button id="obsConnect">Connect OBS</button>
+    </div>
+    <div id="obsMap" class="list"></div>
+    <div class="row wrap">
+      <label class="check"><input id="autoSwitch" type="checkbox"> Switch to the camera I'm facing</label>
+      <label>Hold (seconds) <input id="switchHold" type="number" min="1" max="15" step="0.5"></label>
+    </div>
+  </section>
+
+  <section data-panel="settings" hidden>
+    <div class="grid2">
+      <label>Framing <select id="setFraming"><option value="center">Middle</option><option value="left">Left third</option><option value="right">Right third</option></select></label>
+      <label>Track <select id="setTrack"><option value="face">Face (fast, at a desk)</option><option value="body">Body (when you move around)</option></select></label>
+      <label>Follow speed <input id="setSpeed" type="range" min="0.3" max="2" step="0.1"></label>
+      <label>Top speed (°/s) <input id="setMax" type="number" min="10" max="180" step="5"></label>
+      <label class="check"><input id="setTilt" type="checkbox"> Follow up/down too</label>
+      <label class="check"><input id="setOverlay" type="checkbox"> Show tracking box</label>
+      <label class="check"><input id="setInvPan" type="checkbox"> Reverse left/right</label>
+      <label class="check"><input id="setInvTilt" type="checkbox"> Reverse up/down</label>
+      <label>OM 4 method <select id="setMethod"><option value="step">Small steps (default)</option><option value="speed">Speed command</option></select></label>
+      <label>Voice wake word <input id="setWake" placeholder="gimbal"></label>
+    </div>
+    <p class="hint">Something not moving? Open the <a href="lab.html">Gimbal Lab</a> to test the connection step by step.</p>
+    <p class="hint small" id="buildInfo"></p>
+  </section>
+</dialog>
+
+<template id="rigTpl">
+  <section class="rig">
+    <video playsinline muted autoplay></video>
+    <canvas class="overlay"></canvas>
+    <div class="rig-bar">
+      <select class="cam" aria-label="Camera"></select>
+      <select class="model" aria-label="Gimbal"></select>
+      <button class="connect">Connect gimbal</button>
+      <span class="status"></span>
+      <button class="remove" hidden aria-label="Remove this camera">✕</button>
+    </div>
+    <div class="live-tag" hidden>LIVE</div>
+  </section>
+</template>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

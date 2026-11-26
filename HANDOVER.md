@@ -45,7 +45,10 @@ The live-stream camera conflict is solved by the **Mac being the director**:
 | `vendor/` | MediaPipe tasks-vision 1.2.3 (wasm) plus face and pose models, vendored for offline use | done |
 | `test/*.mjs` | `node test/<name>.test.mjs` for duml, follow, voice and moves; `page.test.mjs` runs the lab in headless Chromium with a mock gimbal (needs Playwright) | all passing |
 
-### Still to build (the main app)
+### Main app (built 2026-11-26: `index.html`, `app.css`, `src/app.js`, PWA files; `test/app.test.mjs` passes)
+What follows was the spec; all of it is in place except multi-camera use on real hardware is untested.
+
+### Original spec (the main app)
 - `index.html` plus `src/app.js` and `app.css`: the main app screen.
   - **Rigs:** each rig is a camera, a gimbal, a tracker and a follow controller. The phone shows one full-screen rig; the Mac shows a grid of 2 or more.
   - Per rig: camera picker, gimbal connect, Follow toggle, and an overlay showing the face box and framing target.
@@ -78,7 +81,15 @@ The live-stream camera conflict is solved by the **Mac being the director**:
 - Each axis has a reverse setting on the gimbal (user params 10 tilt, 11 pan). Direction and the degrees-per-second scale (`settings.maxSpeed`) still need checking on the real gimbal.
 - Decompiled sources and extracted assets are on the external drive: `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/2026-11-26-feiyu-apk/`.
 - Phone access from the Mac works over **wireless debugging** (the USB cable did not show up as a data device). It's already paired: `adb connect 192.168.28.232:42315` while Wireless debugging is on; the port can change, and `adb mdns services` shows it.
-- `test/page.test.mjs` fails on the Mac the same way before and after this change: the page closes when Connect is clicked. It needs Playwright 1.62.1 (it matches the cached Chromium 1234); that copy is installed at `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/2026-11-26-test-deps` (run with `NODE_PATH=<that>/node_modules`). Not yet diagnosed.
+- Browser tests on the Mac: use Playwright 1.62.1 (matches the cached Chromium 1234), installed at `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/2026-11-26-test-deps` (run with `NODE_PATH=<that>/node_modules`). The old page-test failure was the mock: `navigator.bluetooth = …` is silently ignored on a secure page, so real Bluetooth ran and macOS killed the browser. Fixed with `Object.defineProperty`. macOS also blocks camera access for automated browsers, so `test/app.test.mjs` uses a canvas stream as the camera.
+
+### SCORP-C hardware results (2026-11-26, from the Mac with `tools/scorp_test.py` / `tools/scorp_experiments.py`)
+- Connects; the gimbal streams cmd 30 (attitude, ~10 Hz) and acknowledges SET commands (use mode → RESPONSE_SET).
+- The Feiyu app's log (tag `20191206`) shows it sends exactly our joystick packet (course ±450 at 30 Hz) and, for SCORP-C, no app-status push (`scorp_c.json` has no `appStatusPush`).
+- Joystick from the Mac moved the gimbal only in runs where no use-mode 2 ("restore initial position") had been sent since power-on. Suspect: use mode 2 stops joystick until power-cycle. `FeiyuScorp.recenter()` now drives back by offset; `restoreInitialPosition()` is kept but unused. Unconfirmed.
+- The gimbal stops advertising a few minutes after a disconnect (seen while on the charger). Press its power button before testing.
+- macOS won't give Bluetooth to the Claude app process; run BLE tools via the `.command` launchers in `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/` (they open Terminal, which has Bluetooth access) and read the `.log` files.
+- **Next test (owner present, gimbal freshly powered on):** double-click `SCORP-C experiments.command` and watch. Each trial logs the angle span; a big span on trial A = joystick works and use mode 2 was the culprit.
 
 ## Next steps
 

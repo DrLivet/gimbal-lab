@@ -28,8 +28,10 @@
     gatt: { connected: true, connect: async () => device.gatt,
       getPrimaryService: async () => service, getPrimaryServices: async () => [service], disconnect() {} } };
   window.__attitude = (pkt) => { window.__template = pkt; };
-  navigator.bluetooth = { requestDevice: async () => device };
-  window.BluetoothUUID = { getService: (n) => u(n) };
+  // defineProperty, not assignment: on a secure page Chrome's own navigator.bluetooth getter
+  // silently ignores `navigator.bluetooth = ...`, and the real Bluetooth stack would be used.
+  Object.defineProperty(navigator, 'bluetooth', { value: { requestDevice: async () => device }, configurable: true });
+  Object.defineProperty(window, 'BluetoothUUID', { value: { getService: (n) => u(n) }, configurable: true, writable: true });
   // attitude pushes, built by the page's own encoder (exposed for the test)
   setInterval(async () => {
     const { build } = await import('/lib/duml.js');
