@@ -3,7 +3,7 @@
 // Phone: one full-screen rig. Mac: a grid of rigs, with OBS scene switching to the camera you face.
 import { MODELS } from '../lib/gimbal.js';
 import { Follow, pickTarget, FRAMING, WALKING, fovFor } from './follow.js';
-import { HoldDetector, GestureWatcher } from './gesture.js';
+import { HoldDetector, GestureWatcher, TwistDetector } from './gesture.js';
 import { calibrate } from './calibrate.js';
 import { rotatePhone } from './orient.js';
 import { ROT } from '../lib/duml.js';
@@ -405,10 +405,10 @@ function stopRecordingHandsFree() { if (countdown) { clearInterval(countdown); c
 
 // ---------- hand signals ----------
 // ✋ open palm held ~1 s: start (with countdown) / stop recording.  ✌️ held ~1 s: follow on/off.
-const hands = { watcher: null, loading: false, hold: new HoldDetector(), last: 0, failed: false };
+const hands = { watcher: null, loading: false, hold: new HoldDetector(), twist: new TwistDetector(), last: 0, failed: false };
 function handsTick(now) {
   if (!S.gestures || document.hidden || hands.failed || !active?.stream) return;
-  if (now - hands.last < 160) return;  // ~6 checks a second is plenty for a held sign
+  if (now - hands.last < 100) return;  // ~10 checks a second: enough for a held sign or a twist
   hands.last = now;
   if (!hands.watcher) {
     if (hands.loading) return;
@@ -419,6 +419,10 @@ function handsTick(now) {
   }
   let sign = null;
   try { sign = hands.watcher.detect(active.video); } catch { /* frame not ready */ }
+  // A twist (turning a knob) switches portrait/landscape on a DJI phone gimbal.
+  if (hands.twist.update(hands.watcher.angle ?? null, now / 1000) === 'turn' && active.gimbal?.om && !active.rotating) {
+    beep.ok(); toast('🔄 Turning the phone'); active.rotatePhone(); return;
+  }
   const fired = hands.hold.update(sign, now / 1000);
   if (fired === 'palm') { if (recorder || countdown) { stopRecordingHandsFree(); } else startRecordingCountdown(); }
   else if (fired === 'peace') toggleFollow();
