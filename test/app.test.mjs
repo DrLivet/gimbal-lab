@@ -57,6 +57,8 @@ await page.addInitScript(() => {
   class FakeSR { start(track) { window.__srStarts.push(track ? track.__mic : 'browser-default'); setTimeout(() => this.onstart?.(), 10); }
     stop() { setTimeout(() => this.onend?.(), 10); } abort() {} }
   window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR;
+  window.__sign = null;
+  window.__makeGestures = async () => ({ detect: () => window.__sign, close() {} });
   window.__makeTracker = async () => ({ detect: () => [{ x: 0.85, y: 0.42, w: 0.15, h: 0.2, score: 1, facing: 0.9 }], close() {} });
 });
 
@@ -104,6 +106,32 @@ try {
   const kinds = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', recPath]).toString().trim().split(/\s+/).sort();
   assert.deepEqual(kinds, ['audio', 'video'], `take has picture and sound (${kinds})`);
   await page.waitForFunction(() => /Saved on this device: Downloads\//.test(document.getElementById('toast').textContent));
+
+  // Hand signals: hold ✋ → 3-2-1 → recording; hold ✋ again → stops and saves.
+  const sign = async (g, ms) => { await page.evaluate((x) => { window.__sign = x; }, g); await page.waitForTimeout(ms); await page.evaluate(() => { window.__sign = null; }); await page.waitForTimeout(1000); };
+  await sign('palm', 1500);
+  assert.ok(await page.evaluate(() => window.__app.counting || window.__app.recording), 'palm starts the countdown');
+  await page.waitForFunction(() => window.__app.recording, null, { timeout: 5000 });
+  await page.waitForTimeout(1000);
+  const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }), sign('palm', 1500)]);
+  assert.match(dl2.suggestedFilename(), /^Gimbal .*\.(mp4|webm)$/, 'palm stops and saves');
+  assert.equal(await page.evaluate(() => window.__app.recording), false);
+  // ✌️ toggles follow
+  const f0 = await page.getAttribute('#btnFollow', 'aria-pressed');
+  await sign('peace', 1500);
+  assert.notEqual(await page.getAttribute('#btnFollow', 'aria-pressed'), f0, 'peace sign toggles follow');
+  await sign('peace', 1500);
+  assert.equal(await page.getAttribute('#btnFollow', 'aria-pressed'), f0);
+  // Voice "start recording" counts down too; "stop recording" during the countdown cancels.
+  await page.evaluate(() => window.__app.applyVoice({ cmd: 'record-start' }));
+  assert.equal(await page.evaluate(() => window.__app.counting), true, 'voice start counts down');
+  await page.evaluate(() => window.__app.applyVoice({ cmd: 'record-stop' }));
+  await page.waitForTimeout(3500);
+  assert.equal(await page.evaluate(() => window.__app.recording), false, 'cancelled countdown never records');
+  // Walking mode uses the gentler follow settings
+  await page.evaluate(() => { window.__app.settings.trackMode = 'body'; window.__app.rigs.forEach((r) => r.applySettings()); });
+  assert.equal(await page.evaluate(() => window.__app.active.follow.s.smoothing), 0.3, 'walking smoothing applied');
+  await page.evaluate(() => { window.__app.settings.trackMode = 'face'; window.__app.rigs.forEach((r) => r.applySettings()); });
 
   // Prompter: paste a script, play, it scrolls
   await page.click('#btnMore');

@@ -2,7 +2,9 @@
 // A "rig" is one camera + (optionally) one gimbal + a face/body tracker + a follow controller.
 // Phone: one full-screen rig. Mac: a grid of rigs, with OBS scene switching to the camera you face.
 import { MODELS } from '../lib/gimbal.js';
-import { Follow, pickTarget, FRAMING } from './follow.js';
+import { Follow, pickTarget, FRAMING, WALKING } from './follow.js';
+import { HoldDetector, GestureWatcher } from './gesture.js';
+import { beep as rawBeep } from './beep.js';
 import { Tracker } from './tracker.js';
 import { Voice } from './voice.js';
 import { PRESETS, loadCustom, saveCustom, play as playMove, MoveRecorder } from './moves.js';
@@ -18,6 +20,8 @@ const VERSION = '2026-11-26';
 
 // ---------- toast ----------
 let toastTimer = null;
+// Sounds can be switched off in Settings.
+const beep = new Proxy(rawBeep, { get: (o, k) => () => { if (S.sounds !== false) { try { o[k](); } catch { /* no audio */ } } } });
 function toast(msg, ms = 2200) {
   const t = $('toast');
   t.textContent = msg; t.classList.add('show');
@@ -68,7 +72,9 @@ class Rig {
   }
 
   followSettings() {
-    return { framing: S.framing, speed: S.speed, tiltEnabled: S.tiltEnabled, hfov: S.hfov, deadzone: S.deadzone, maxSpeed: S.maxSpeed };
+    const base = { framing: S.framing, speed: S.speed, tiltEnabled: S.tiltEnabled, hfov: S.hfov, deadzone: S.deadzone, maxSpeed: S.maxSpeed, smoothing: 0.12, accel: 1, lostAfter: 1.2 };
+    if (S.trackMode !== 'body') return base;
+    return { ...base, smoothing: WALKING.smoothing, accel: WALKING.accel, lostAfter: WALKING.lostAfter, deadzone: S.deadzone * WALKING.deadzoneScale };
   }
 
   applySettings() {
@@ -256,6 +262,7 @@ function setActive(r) {
 async function toggleFollow(on = !active.following) {
   await active.setFollowing(on);
   $('btnFollow').setAttribute('aria-pressed', String(active.following));
+  (active.following ? beep.on : beep.off)();
   if (on && !active.gimbal?.connected) toast('Following — connect a gimbal so it can turn');
   else toast(active.following ? 'Following you' : 'Follow off');
 }
@@ -289,12 +296,50 @@ async function toggleRecord() {
   rec.onstop = async () => {
     recorder = null;
     $('btnRecord').setAttribute('aria-pressed', 'false');
+    beep.off();
     try { toast(`Saved on this device: ${await take.close()}`, 4000); }
     catch { toast('Could not save the recording', 4000); }
   };
+  beep.go();
   rec.start(1000);
   $('btnRecord').setAttribute('aria-pressed', 'true');
   toast(take.folderName ? `Recording to ${take.folderName}` : 'Recording');
+}
+
+// Hands-free start: 3-2-1 with beeps so you can get into position. Saying/signalling again
+// during the countdown cancels it.
+let countdown = null;
+function startRecordingCountdown() {
+  if (recorder) return;
+  if (countdown) { clearInterval(countdown); countdown = null; beep.nope(); return toast('Recording cancelled'); }
+  let n = 3; toast(`Recording in ${n}…`, 1100); beep.count();
+  countdown = setInterval(() => {
+    n -= 1;
+    if (n > 0) { toast(`Recording in ${n}…`, 1100); beep.count(); return; }
+    clearInterval(countdown); countdown = null; toggleRecord();
+  }, 1000);
+}
+function stopRecordingHandsFree() { if (countdown) { clearInterval(countdown); countdown = null; } if (recorder) toggleRecord(); }
+
+// ---------- hand signals ----------
+// ✋ open palm held ~1 s: start (with countdown) / stop recording.  ✌️ held ~1 s: follow on/off.
+const hands = { watcher: null, loading: false, hold: new HoldDetector(), last: 0, failed: false };
+function handsTick(now) {
+  if (!S.gestures || document.hidden || hands.failed || !active?.stream) return;
+  if (now - hands.last < 160) return;  // ~6 checks a second is plenty for a held sign
+  hands.last = now;
+  if (!hands.watcher) {
+    if (hands.loading) return;
+    hands.loading = true;
+    (window.__makeGestures ? window.__makeGestures() : new GestureWatcher().load())
+      .then((w) => { hands.watcher = w; }).catch(() => { hands.failed = true; }).finally(() => { hands.loading = false; });
+    return;
+  }
+  let sign = null;
+  try { sign = hands.watcher.detect(active.video); } catch { /* frame not ready */ }
+  const fired = hands.hold.update(sign, now / 1000);
+  if (fired === 'palm') { if (recorder || countdown) { stopRecordingHandsFree(); } else startRecordingCountdown(); }
+  else if (fired === 'peace') toggleFollow();
 }
 
 // ---------- joystick ----------
@@ -376,8 +421,8 @@ function applyVoice(c) {
     recenter,
     left: () => nudge(-12, 0), right: () => nudge(12, 0), up: () => nudge(0, 8), down: () => nudge(0, -8),
     'frame-left': () => setFraming('left'), 'frame-right': () => setFraming('right'), 'frame-center': () => setFraming('center'),
-    'record-start': () => { if (!recorder) toggleRecord(); },
-    'record-stop': () => { if (recorder) toggleRecord(); },
+    'record-start': () => { if (!recorder && !countdown) startRecordingCountdown(); },
+    'record-stop': stopRecordingHandsFree,
     'camera-1': () => goLive(rigs[0], true), 'camera-2': () => goLive(rigs[1], true), 'camera-3': () => goLive(rigs[2], true),
     'camera-auto': () => { studio.auto = true; S.autoSwitch = true; persist(); $('autoSwitch').checked = true; toast('Auto camera on'); },
     'prompter-play': () => prompterPlay(true),
@@ -401,7 +446,10 @@ function releaseMic() { mic?.stream.getTracks().forEach((t) => t.stop()); mic = 
 
 voice.addEventListener('heard', (e) => {
   const { text, command } = e.detail;
-  if (command) { applyVoice(command); toast(`🎙 ${text}`); }
+  if (command) {
+    if (!/^(follow|record)/.test(command.cmd)) beep.ok();   // follow/record make their own sounds
+    applyVoice(command); toast(`🎙 ${text}`);
+  }
   else toast(voice.wake ? `🎙 Heard “${text}” — start with “${voice.wake}”` : `🎙 Heard “${text}”`, 3000);
 });
 voice.addEventListener('error', (e) => {
@@ -545,6 +593,8 @@ bind('setSpeed', 'speed', { type: 'number', after: reapply });
 bind('setMax', 'maxSpeed', { type: 'number', after: reapply });
 bind('setTilt', 'tiltEnabled', { type: 'checked', after: reapply });
 bind('setOverlay', 'showOverlay', { type: 'checked' });
+bind('setGestures', 'gestures', { type: 'checked' });
+bind('setSounds', 'sounds', { type: 'checked' });
 bind('setInvPan', 'invertPan', { type: 'checked', after: reapply });
 bind('setInvTilt', 'invertTilt', { type: 'checked', after: reapply });
 bind('setMethod', 'method', { after: reapply });
@@ -621,6 +671,7 @@ document.addEventListener('keyup', (e) => { if (keys.delete(e.key)) keyJoy(); })
 function frame(now) {
   for (const r of rigs) r.tick(now);
   studioTick(now);
+  handsTick(now);
   prompterTick(now);
   requestAnimationFrame(frame);
 }
@@ -648,5 +699,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
   await addRig();
   keepAwake();
   requestAnimationFrame(frame);
-  window.__app = { rigs, toggleFollow, applyVoice, prompterShow, prompterPlay, get active() { return active; }, settings: S };
+  window.__app = { rigs, toggleFollow, applyVoice, hands, get recording() { return !!recorder; }, get counting() { return !!countdown; }, prompterShow, prompterPlay, get active() { return active; }, settings: S };
 })();

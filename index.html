@@ -87,11 +87,13 @@
   <section data-panel="settings" hidden>
     <div class="grid2">
       <label>Framing <select id="setFraming"><option value="center">Middle</option><option value="left">Left third</option><option value="right">Right third</option></select></label>
-      <label>Track <select id="setTrack"><option value="face">Face (fast, at a desk)</option><option value="body">Body (when you move around)</option></select></label>
+      <label>Track <select id="setTrack"><option value="face">Desk (face, fast)</option><option value="body">Walking (whole body, smoother)</option></select></label>
       <label>Follow speed <input id="setSpeed" type="range" min="0.3" max="2" step="0.1"></label>
       <label>Top speed (°/s) <input id="setMax" type="number" min="10" max="180" step="5"></label>
       <label class="check"><input id="setTilt" type="checkbox"> Follow up/down too</label>
       <label class="check"><input id="setOverlay" type="checkbox"> Show tracking box</label>
+      <label class="check"><input id="setGestures" type="checkbox"> Hand signals: ✋ hold = record, ✌️ hold = follow</label>
+      <label class="check"><input id="setSounds" type="checkbox"> Beeps when a command is heard</label>
       <label class="check"><input id="setInvPan" type="checkbox"> Reverse left/right</label>
       <label class="check"><input id="setInvTilt" type="checkbox"> Reverse up/down</label>
       <label>DJI method <select id="setMethod"><option value="speed">Speed command (default)</option><option value="step">Small steps</option></select></label>

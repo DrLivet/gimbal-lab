@@ -20,7 +20,13 @@ export const DEFAULTS = {
   maxSpeed: 60,      // deg/s
   tiltEnabled: true,
   lostAfter: 1.2,    // seconds without a face before we stop
+  smoothing: 0.12,   // seconds of detector smoothing
+  accel: 1,          // how quickly speed changes (lower = gentler starts/stops)
 };
+
+// Walking: the body bobs and the detector jumps more, so smooth harder, ignore small drift,
+// keep turning a bit longer when you're briefly hidden, and ease speed changes.
+export const WALKING = { smoothing: 0.3, accel: 0.55, deadzoneScale: 1.4, lostAfter: 2.5 };
 
 export class Follow {
   constructor(settings = {}) {
@@ -50,7 +56,7 @@ export class Follow {
     // Aim at the eyes rather than the box centre: a little above the middle of the face.
     const cx = target.x;
     const cy = target.y - target.h * 0.1;
-    const a = 1 - Math.exp(-dt / 0.12); // ~120 ms smoothing of detector jitter
+    const a = 1 - Math.exp(-dt / s.smoothing); // smoothing of detector jitter
     this.smooth = this.smooth ? { x: this.smooth.x + a * (cx - this.smooth.x), y: this.smooth.y + a * (cy - this.smooth.y) }
       : { x: cx, y: cy };
 
@@ -67,7 +73,7 @@ export class Follow {
       pan: this.active.x ? clamp(ex * s.hfov * gain) : 0,
       tilt: this.active.y ? clamp(ey * s.vfov * gain) : 0,
     };
-    return this._approach(want, dt, 6 * s.speed);
+    return this._approach(want, dt, 6 * s.speed * s.accel);
   }
 
   // Rate-limits changes in speed so starts and stops are smooth (no jerks on camera).
