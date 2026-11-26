@@ -34,7 +34,8 @@ The live-stream camera conflict is solved by the **Mac being the director**:
 | `lib/duml.js` | DJI DUML framing (crc8 seed 0x77; crc16 seed 0x3692 over the whole packet), parser, decoder | done; verified against 3 real Mimo packets |
 | `lib/om.js` | OM 4 BLE driver (service FFF0, notify FFF4, write FFF5) and `LADDER` of wake-up steps | done |
 | `lib/ble.js`, `lib/explorer.js` | Web Bluetooth helpers; explorer for unknown devices | done |
-| `lib/gimbal.js` | the app-facing gimbal interface (`setVelocity`, `moveBy`, `recenter`, `offset`), with `DjiOm4` implemented and a `MODELS` registry where SCORP-C plugs in | done, untested on hardware |
+| `lib/gimbal.js` | the app-facing gimbal interface (`setVelocity`, `moveBy`, `recenter`, `offset`), with `DjiOm4` implemented and a `MODELS` registry | done, untested on hardware |
+| `lib/feiyu.js` | Feiyu SCORP-C driver (AK protocol), same interface as `DjiOm4`; registered in `MODELS` | done; packets match the Feiyu app's own Java builder byte for byte; untested on hardware |
 | `src/follow.js` | follow-me controller (framing presets, deadzone with hysteresis, smoothing, lost-person stop), `pickTarget`, `facingScore` | done, unit tested |
 | `src/tracker.js` | MediaPipe FaceDetector (`face`) or PoseLandmarker (`body`) on a `<video>` | done, not yet run in a browser |
 | `src/voice.js` | speech commands behind the wake word "gimbal" (stops "all right" panning the camera mid-stream) | done, unit tested |
@@ -67,6 +68,18 @@ The live-stream camera conflict is solved by the **Mac being the director**:
   - Unpair "OM4…" from Android's Bluetooth settings (it also advertises as a HID remote).
   - Gimbal unfolded and in Follow mode.
 
+## SCORP-C protocol (decoded 2026-11-26 from the owner's Feiyu SCORP app v1.5.12)
+
+- BLE name `FY_SCORP_C_xx`. Service `FFFF`, write `FF01`, notify `FF02`. Supports a larger MTU.
+- Packet: `A5 5A 03 <target> <u16 cmdType<<13|cmdId> <msgId> <u16 len> <data> <u16 crc>`, all little endian. The CRC is CRC-16/XMODEM over bytes from `03` to the end of the data.
+- Joystick: PUSH (type 0) to target 0, cmd 14, data `[roll 0/1, pan i16, tilt i16]`. Full scale is ±450. The app sends at 30 Hz and keeps sending zeros for 1 s after release.
+- Recenter: SET (type 1) to target 2, cmd 51 (use mode), data `[2]` ("restore initial position"). Use mode 0 = sleep, 3 = wake.
+- Follow mode: SET to target 2, cmd 50. Values: 0 lock, 1 pan follow, 2 pan+tilt follow, 3 three-axis.
+- Each axis has a reverse setting on the gimbal (user params 10 tilt, 11 pan). Direction and the degrees-per-second scale (`settings.maxSpeed`) still need checking on the real gimbal.
+- Decompiled sources and extracted assets are on the external drive: `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/2026-11-26-feiyu-apk/`.
+- Phone access from the Mac works over **wireless debugging** (the USB cable did not show up as a data device). It's already paired: `adb connect 192.168.28.232:42315` while Wireless debugging is on; the port can change, and `adb mdns services` shows it.
+- `test/page.test.mjs` fails on the Mac the same way before and after this change: the page closes when Connect is clicked. It needs Playwright 1.62.1 (it matches the cached Chromium 1234); that copy is installed at `/Volumes/Livet Build Storage/Future project builds/gimbal-lab/2026-11-26-test-deps` (run with `NODE_PATH=<that>/node_modules`). Not yet diagnosed.
+
 ## Next steps
 
 ### A. Owner to-dos (the GitHub side)
@@ -79,7 +92,7 @@ Prereqs on the phone: Developer options on (tap Build number 7 times), then **US
 
 1. Install adb: `brew install android-platform-tools`. If Homebrew is missing, install it first, or download Google's platform-tools zip.
 2. `adb devices`: the S24 should be listed as `device`.
-3. **Copy the Feiyu app off the phone** to learn the SCORP-C protocol (interoperability with the owner's own device):
+3. **DONE 2026-11-26 (see the SCORP-C section).** Copy the Feiyu app off the phone to learn the SCORP-C protocol (interoperability with the owner's own device):
    - `adb shell pm list packages | grep -i -E "feiyu|scorp"`
    - `adb shell pm path <package>`, then `adb pull` every APK path it prints. It may be split APKs.
    - Decompile with **jadx** (`brew install jadx`). Search for `BluetoothGatt`, `UUID.fromString`, `writeCharacteristic`, `setCharacteristicNotification`, and the packet builder or checksum code.
