@@ -37,9 +37,17 @@ export class HoldDetector {
 }
 
 // Hand twist angle, degrees: direction from the wrist (landmark 0) to the middle knuckle (9).
-export function handAngle(lm) {
+// Landmarks are 0..1 of width and height, so scale by the picture size (W×H) to get true angles
+// in landscape and portrait alike.
+export function handAngle(lm, W = 1, H = 1) {
   const w = lm[0]; const m = lm[9];
-  return (Math.atan2(m.x - w.x, -(m.y - w.y)) * 180) / Math.PI;   // 0 = fingers up
+  return (Math.atan2((m.x - w.x) * W, -(m.y - w.y) * H) * 180) / Math.PI;   // 0 = fingers up
+}
+
+// Hand size as a fraction of the picture's longer side (same meaning in portrait and landscape).
+export function handSize(lm, W = 1, H = 1) {
+  const xs = lm.map((p) => p.x); const ys = lm.map((p) => p.y);
+  return Math.max((Math.max(...xs) - Math.min(...xs)) * W, (Math.max(...ys) - Math.min(...ys)) * H) / Math.max(W, H);
 }
 
 // Fires 'turn' when one visible hand twists by at least `min` degrees within `within` seconds
@@ -101,13 +109,13 @@ export class GestureWatcher {
     if (!this.task || video.readyState < 2 || !video.videoWidth) return null;
     const ts = Math.max(performance.now(), this.lastTs + 1); this.lastTs = ts;
     const r = this.task.recognizeForVideo(video, ts);
-    // Hand size (fraction of frame width): a hand filling the picture is someone handling
-    // the phone/gimbal right at the lens, not a gesture.
+    // A hand filling the picture is someone handling the phone/gimbal right at the lens,
+    // not a gesture. (Measured against the longer side so landscape works like portrait.)
     this.handSize = 0;
     if (r.landmarks?.[0]?.length > 9) {
-      const xs = r.landmarks[0].map((p) => p.x); const ys = r.landmarks[0].map((p) => p.y);
-      this.handSize = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-      this.angle = this.handSize < 0.45 ? handAngle(r.landmarks[0]) : null;
+      const W = video.videoWidth; const H = video.videoHeight;
+      this.handSize = handSize(r.landmarks[0], W, H);
+      this.angle = this.handSize < 0.45 ? handAngle(r.landmarks[0], W, H) : null;
     }
     for (const g of r.gestures || []) {
       const top = g[0];

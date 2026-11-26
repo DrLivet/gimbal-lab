@@ -57,5 +57,13 @@ import { TwistDetector, handAngle } from '../src/gesture.js';
   // handAngle: wrist below middle knuckle = 0°, hand pointing right = 90°.
   const lm = (dx, dy) => { const a = Array(21).fill({ x: 0.5, y: 0.5 }); a[0] = { x: 0.5, y: 0.5 }; a[9] = { x: 0.5 + dx, y: 0.5 + dy }; return a; };
   assert.ok(Math.abs(handAngle(lm(0, -0.1))) < 1); assert.ok(Math.abs(handAngle(lm(0.1, 0)) - 90) < 1);
+  // Same hand in landscape (1920×1080) and portrait (1080×1920): same size and angle,
+  // and a normal hand isn't mistaken for "handling the rig" in landscape (the 2026-11-26 bug).
+  const { handSize } = await import('../src/gesture.js');
+  const hand = (cx, cy, wpx, hpx, W, H) => { const a = []; for (let i = 0; i < 21; i++) a.push({ x: (cx + ((i % 5) / 4 - 0.5) * wpx) / W, y: (cy + (Math.floor(i / 5) / 4 - 0.5) * hpx) / H }); a[0] = { x: cx / W, y: (cy + hpx / 2) / H }; a[9] = { x: cx / W, y: (cy - hpx / 2) / H }; return a; };
+  const L = hand(960, 540, 300, 500, 1920, 1080); const P = hand(540, 960, 300, 500, 1080, 1920);
+  assert.ok(Math.abs(handSize(L, 1920, 1080) - handSize(P, 1080, 1920)) < 0.01, 'size same in both orientations');
+  assert.ok(handSize(L, 1920, 1080) < 0.45, `normal hand OK in landscape (${handSize(L, 1920, 1080).toFixed(2)})`);
+  assert.ok(Math.abs(handAngle(L, 1920, 1080)) < 1 && Math.abs(handAngle(P, 1080, 1920)) < 1, 'upright hand = 0° both ways');
   console.log('gesture: twist tests passed');
 }
