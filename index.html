@@ -92,7 +92,7 @@
       <label>Top speed (°/s) <input id="setMax" type="number" min="10" max="180" step="5"></label>
       <label class="check"><input id="setTilt" type="checkbox"> Follow up/down too</label>
       <label class="check"><input id="setOverlay" type="checkbox"> Show tracking box</label>
-      <label class="check"><input id="setGestures" type="checkbox"> Hand signals: ✋ hold = record, ✌️ hold = follow, 🔄 twist = portrait/landscape</label>
+      <label class="check"><input id="setGestures" type="checkbox"> Hand signals: ☝️ point (or ✋) hold = record, ✌️ hold = follow, 🔄 twist = portrait/landscape</label>
       <label class="check"><input id="setSounds" type="checkbox"> Beeps when a command is heard</label>
       <label class="check"><input id="setInvPan" type="checkbox"> Reverse left/right</label>
       <label class="check"><input id="setInvTilt" type="checkbox"> Reverse up/down</label>
@@ -112,6 +112,12 @@
       <button id="micTest">Test microphones</button>
     </div>
     <div id="micResults" class="list"></div>
+    <h3>Sony camera</h3>
+    <p class="hint">Start and stop your Sony's own recording from this app (Record button, ✋ palm, voice). On the camera: <b>MENU › Network › Bluetooth › Bluetooth Function: On</b> and <b>Bluetooth Rmt Ctrl: On</b>, then pair. <span id="sonyInfo">Not connected</span></p>
+    <div class="row wrap">
+      <button id="sonyConnect">Connect Sony camera</button>
+      <label class="grow">When I record <select id="setSonyMode"><option value="sony">Record on the Sony only</option><option value="both">Record on the Sony and the phone</option></select></label>
+    </div>
     <h3>Recordings</h3>
     <p class="hint">Recordings are saved on this device. Pick a folder such as <b>Movies</b> or <b>DCIM › Camera</b> to have them show up in your Gallery. <span id="folderInfo"></span></p>
     <div class="row wrap">

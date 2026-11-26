@@ -135,6 +135,27 @@ try {
   assert.notEqual(await page.getAttribute('#btnFollow', 'aria-pressed'), f0, 'peace sign toggles follow');
   await sign('peace', 1500);
   assert.equal(await page.getAttribute('#btnFollow', 'aria-pressed'), f0);
+  // ☝️ pointing at the camera also starts (after 3-2-1) and stops recording
+  await sign('point', 1500);
+  await page.waitForFunction(() => window.__app.recording, null, { timeout: 6000 });
+  await page.waitForTimeout(800);
+  const [dl3] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }), sign('point', 1500)]);
+  assert.match(dl3.suggestedFilename(), /^Gimbal /, 'point stops and saves');
+  // With a Sony connected (stubbed), Record starts/stops the Sony and the phone doesn't record.
+  await page.evaluate(() => {
+    const s = window.__app.sony; window.__sonyCalls = [];
+    Object.defineProperty(s, 'connected', { get: () => true, configurable: true });
+    s.setRecording = async (on) => { window.__sonyCalls.push(on); s.recording = on; };
+  });
+  await page.click('#btnRecord');
+  assert.equal(await page.getAttribute('#btnRecord', 'aria-pressed'), 'true');
+  await page.waitForTimeout(500);
+  await page.click('#btnRecord');
+  await page.waitForTimeout(300);
+  assert.deepEqual(await page.evaluate(() => window.__sonyCalls), [true, false], 'Sony started then stopped');
+  assert.equal(await page.getAttribute('#btnRecord', 'aria-pressed'), 'false');
+  await page.evaluate(() => { Object.defineProperty(window.__app.sony, 'connected', { get: () => false, configurable: true }); });
+
   // Voice "start recording" counts down too; "stop recording" during the countdown cancels.
   await page.evaluate(() => window.__app.applyVoice({ cmd: 'record-start' }));
   assert.equal(await page.evaluate(() => window.__app.counting), true, 'voice start counts down');

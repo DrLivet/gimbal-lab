@@ -3,6 +3,7 @@
 // Phone: one full-screen rig. Mac: a grid of rigs, with OBS scene switching to the camera you face.
 import { MODELS } from '../lib/gimbal.js';
 import { findKnownDevice } from '../lib/ble.js';
+import { SonyRemote } from '../lib/sony.js';
 import { Follow, pickTarget, FRAMING, WALKING, fovFor } from './follow.js';
 import { HoldDetector, GestureWatcher, TwistDetector } from './gesture.js';
 import { calibrate } from './calibrate.js';
@@ -379,8 +380,42 @@ function recenter() {
 }
 
 let recorder = null;
+// ---------- Sony camera (Bluetooth remote) ----------
+// When a Sony is connected, recording starts/stops the Sony itself; the phone can record too.
+const sony = new SonyRemote();
+let sonyRec = false;
+const isRecording = () => !!recorder || sonyRec;
+function showSony() {
+  $('sonyInfo').textContent = sony.connected ? `${sony.name} connected${sony.recording ? ' · recording' : ''}` : 'Not connected';
+  $('sonyConnect').textContent = sony.connected ? 'Disconnect Sony' : 'Connect Sony camera';
+}
+sony.addEventListener('state', showSony);
+sony.addEventListener('recording', (e) => {
+  // The camera reports its own state (e.g. you pressed its red button): follow it.
+  if (S.sonyMode === 'sony') { sonyRec = e.detail; $('btnRecord').setAttribute('aria-pressed', String(isRecording())); }
+  showSony();
+});
+async function sonySet(on) {
+  try { await sony.setRecording(on); }
+  catch (e) { toast(`Sony: ${e.message}`, 4000); }
+}
+
 async function toggleRecord() {
-  if (recorder) { recorder.stop(); return; }
+  const useSony = sony.connected;
+  const phoneToo = !useSony || S.sonyMode === 'both';
+  if (isRecording()) {
+    if (recorder) recorder.stop();
+    if (useSony && sonyRec) {
+      sonyRec = false; await sonySet(false);
+      if (!phoneToo) { $('btnRecord').setAttribute('aria-pressed', 'false'); beep.off(); toast('Sony recording stopped', 3000); }
+    }
+    return;
+  }
+  if (useSony) {
+    sonyRec = true; beep.go(); sonySet(true);
+    $('btnRecord').setAttribute('aria-pressed', 'true');
+    if (!phoneToo) { toast('Sony recording'); return; }
+  }
   const stream = active.stream;
   if (!stream) return toast('No camera yet');
   // Standard MP4 (H.264 picture + AAC sound) plays in Gallery and every player; then fall back.
@@ -418,7 +453,7 @@ async function toggleRecord() {
 // during the countdown cancels it.
 let countdown = null;
 function startRecordingCountdown() {
-  if (recorder) return;
+  if (isRecording()) return;
   if (countdown) { clearInterval(countdown); countdown = null; beep.nope(); return toast('Recording cancelled'); }
   let n = 3; toast(`Recording in ${n}…`, 1100); beep.count();
   countdown = setInterval(() => {
@@ -427,7 +462,7 @@ function startRecordingCountdown() {
     clearInterval(countdown); countdown = null; toggleRecord();
   }, 1000);
 }
-function stopRecordingHandsFree() { if (countdown) { clearInterval(countdown); countdown = null; } if (recorder) toggleRecord(); }
+function stopRecordingHandsFree() { if (countdown) { clearInterval(countdown); countdown = null; } if (isRecording()) toggleRecord(); }
 
 // ---------- hand signals ----------
 // ✋ open palm held ~1 s: start (with countdown) / stop recording.  ✌️ held ~1 s: follow on/off.
@@ -452,7 +487,7 @@ function handsTick(now) {
     beep.ok(); toast('🔄 Turning the phone'); active.rotatePhone(); return;
   }
   const fired = hands.hold.update(sign, now / 1000);
-  if (fired === 'palm') { if (recorder || countdown) { stopRecordingHandsFree(); } else startRecordingCountdown(); }
+  if (fired === 'palm' || fired === 'point') { if (isRecording() || countdown) { stopRecordingHandsFree(); } else startRecordingCountdown(); }
   else if (fired === 'peace') toggleFollow();
 }
 
@@ -535,7 +570,7 @@ function applyVoice(c) {
     recenter,
     left: () => nudge(-12, 0), right: () => nudge(12, 0), up: () => nudge(0, 8), down: () => nudge(0, -8),
     'frame-left': () => setFraming('left'), 'frame-right': () => setFraming('right'), 'frame-center': () => setFraming('center'),
-    'record-start': () => { if (!recorder && !countdown) startRecordingCountdown(); },
+    'record-start': () => { if (!isRecording() && !countdown) startRecordingCountdown(); },
     'record-stop': stopRecordingHandsFree,
     'camera-1': () => goLive(rigs[0], true), 'camera-2': () => goLive(rigs[1], true), 'camera-3': () => goLive(rigs[2], true),
     'camera-auto': () => { studio.auto = true; S.autoSwitch = true; persist(); $('autoSwitch').checked = true; toast('Auto camera on'); },
@@ -751,6 +786,14 @@ bind('setAutoDirs', 'autoCheckDirs', { type: 'checked' });
 bind('setAutoFollow', 'autoFollow', { type: 'checked' });
 bind('setQuality', 'videoQuality', { after: () => rigs.forEach((r) => r.stream && r.startCamera(r.camSel.value || undefined)) });
 bind('setFps', 'videoFps', { after: () => rigs.forEach((r) => r.stream && r.startCamera(r.camSel.value || undefined)) });
+$('sonyConnect').onclick = async () => {
+  if (sony.connected) { sony.disconnect(); return showSony(); }
+  $('sonyInfo').textContent = 'Pick your camera in the list… (camera: Bluetooth Rmt Ctrl On, then pair)';
+  try { await sony.connect(); toast(`${sony.name} connected — Record now starts the Sony`, 4000); }
+  catch (e) { $('sonyInfo').textContent = /cancel/i.test(e.message) ? 'Not connected' : `Couldn't connect: ${e.message}`; return; }
+  showSony();
+};
+bind('setSonyMode', 'sonyMode');
 // Recordings folder
 async function showFolder() {
   const info = $('folderInfo');
@@ -839,5 +882,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
     };
     addEventListener('pointerdown', kick, { once: true });
   }
-  window.__app = { checkDirections: () => active.checkDirections(), rigs, toggleFollow, applyVoice, hands, get recording() { return !!recorder; }, get counting() { return !!countdown; }, prompterShow, prompterPlay, get active() { return active; }, settings: S };
+  window.__app = { checkDirections: () => active.checkDirections(), rigs, toggleFollow, applyVoice, hands, get recording() { return isRecording(); }, sony, get counting() { return !!countdown; }, prompterShow, prompterPlay, get active() { return active; }, settings: S };
 })();

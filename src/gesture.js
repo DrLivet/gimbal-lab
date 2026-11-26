@@ -1,12 +1,13 @@
 // Hand signals seen by the camera, for when voice can't hear you (wind, traffic, music).
-//   ✋ open palm held ~1 s  → start / stop recording
+//   ☝️ point one finger at the camera ~1 s → start / stop recording (✋ open palm too)
 //   ✌️ peace sign held ~1 s → follow on / off
 //   🔄 twist your hand like turning a knob → portrait ⇄ landscape
 // Uses MediaPipe's gesture model (vendored, works offline). HoldDetector is pure and unit-tested.
 
 const BASE = new URL('../vendor/', import.meta.url).href;
 
-export const GESTURES = { Open_Palm: 'palm', Victory: 'peace' };
+// Pointing_Up = one finger raised/pointed at the camera.
+export const GESTURES = { Open_Palm: 'palm', Victory: 'peace', Pointing_Up: 'point' };
 
 // Fires once when the same sign is seen for most of `hold` seconds, then needs the hand to
 // go away for `rearm` seconds before that sign can fire again (so one wave = one action).
