@@ -71,6 +71,12 @@ What follows was the spec; all of it is in place except multi-camera use on real
   - Unpair "OM4…" from Android's Bluetooth settings (it also advertises as a HID remote).
   - Gimbal unfolded and in Follow mode.
 
+## DJI gimbal results (2026-11-26, from the Mac with `tools/om4_test.py`)
+- **The owner's DJI gimbal is an OM 5** (BLE name `OM5-8055QE`), not an OM 4. Same DUML protocol and FFF0 service.
+- macOS keeps it connected at system level (paired as a remote), so it doesn't advertise; the test retrieves it with CoreBluetooth `retrieveConnectedPeripheralsWithServices` (FFF0). On the phone, unpair it from Android Bluetooth settings first if Chrome can't see it.
+- Relative rotate 04/14 (every ladder variant): **no ack, no movement**. Speed command 04/0c: **acked and moves accurately**. 30°/s for 2 s gave 63.6° pan; 20°/s tilt gave ~41°. Attitude 04/05: pitch/roll/yaw in 0.1°; pitch wraps at ±180 (rests near -172).
+- So `DjiOm4` now defaults to `method: 'speed'`; `moveBy`/`recenter` use speed over time. Heartbeats (04/50, 00/00) were running in the successful test.
+
 ## SCORP-C protocol (decoded 2026-11-26 from the owner's Feiyu SCORP app v1.5.12)
 
 - BLE name `FY_SCORP_C_xx`. Service `FFFF`, write `FF01`, notify `FF02`. Supports a larger MTU.
