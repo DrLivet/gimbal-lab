@@ -4,6 +4,7 @@
 import { MODELS } from '../lib/gimbal.js';
 import { Follow, pickTarget, FRAMING, WALKING } from './follow.js';
 import { HoldDetector, GestureWatcher } from './gesture.js';
+import { calibrate } from './calibrate.js';
 import { beep as rawBeep } from './beep.js';
 import { Tracker } from './tracker.js';
 import { Voice } from './voice.js';
@@ -79,7 +80,14 @@ class Rig {
 
   applySettings() {
     this.follow.set(this.followSettings());
-    if (this.gimbal) Object.assign(this.gimbal.settings, { invertPan: S.invertPan, invertTilt: S.invertTilt, method: S.method, maxSpeed: Math.max(S.maxSpeed, 30) });
+    if (this.gimbal) {
+      // Directions found by the camera check, per gimbal; the Reverse settings flip on top.
+      const d = this.dirs();
+      Object.assign(this.gimbal.settings, {
+        invertPan: S.invertPan !== (d.pan === 'flip'), invertTilt: S.invertTilt !== (d.tilt === 'flip'),
+        method: S.method, maxSpeed: Math.max(S.maxSpeed, 30),
+      });
+    }
     if (this.tracker && this.trackerMode !== S.trackMode) { this.tracker.close(); this.tracker = null; }
   }
 
@@ -119,6 +127,31 @@ class Rig {
     }
   }
 
+  dirsKey() { return `dirs.${this.gimbal?.name || this.modelSel.value}.${this.selfie ? 'front' : 'back'}`; }
+  dirs() { try { return JSON.parse(localStorage.getItem(this.dirsKey()) || '{}'); } catch { return {}; } }
+
+  // Nudges each axis and watches the picture to learn which way this gimbal really turns.
+  async checkDirections() {
+    if (!this.gimbal?.connected || !this.video.videoWidth) return null;
+    const wasFollowing = this.following;
+    if (wasFollowing) await this.setFollowing(false);
+    this.setStatus('Checking which way the gimbal turns… keep it still');
+    this.calibrating = true;
+    let r = null;
+    try {
+      const old = this.dirs();   // kept for an axis the check can't decide
+      localStorage.removeItem(this.dirsKey()); this.applySettings();   // measure from the raw directions
+      r = await calibrate(this);
+      localStorage.setItem(this.dirsKey(), JSON.stringify({ pan: r.pan || old.pan || 'ok', tilt: r.tilt || old.tilt || 'ok' }));
+      this.applySettings();
+      const say = (k, v) => (v === 'flip' ? `${k} reversed (fixed)` : v === 'ok' ? `${k} OK` : `${k} not sure`);
+      this.setStatus(`Directions: ${say('left/right', r.pan)}, ${say('up/down', r.tilt)}`);
+    } catch (e) { this.setStatus(`Direction check failed: ${e.message}`); }
+    this.calibrating = false;
+    if (wasFollowing) await this.setFollowing(true);
+    return r;
+  }
+
   async connect() {
     const m = MODELS[this.modelSel.value];
     if (!m?.create) return toast('That gimbal is not supported yet');
@@ -132,6 +165,8 @@ class Rig {
       await g.connect();
       this.setStatus(`${g.name} connected`);
       toast(`${g.name} connected`);
+      this.applySettings();
+      if (S.autoCheckDirs !== false) setTimeout(() => this.checkDirections(), 800);
     } catch (e) {
       this.gimbal = null;
       this.setStatus(/cancel/i.test(e.message) ? '' : `Couldn't connect: ${e.message}`);
@@ -180,7 +215,7 @@ class Rig {
     const t = pickTarget(cands, this.lastTarget);
     this.lastTarget = t;
     this.facing = t ? t.facing ?? 0 : 0;
-    if (this.following) {
+    if (this.following && !this.calibrating) {
       const v = this.follow.update(t, ddt || dt);
       this.setVelocity(v.pan, v.tilt);
     }
@@ -624,6 +659,13 @@ $('micTest').onclick = async () => {
   } catch (e) { out.textContent = `Test failed: ${e.message}`; }
   if (voice.on) setVoice(true);
 };
+$('dirCheck').onclick = async () => {
+  if (!active.gimbal?.connected) return toast('Connect a gimbal first');
+  $('sheetMore').close?.();
+  const r = await active.checkDirections();
+  if (r) toast(active.statusEl.textContent, 4000);
+};
+bind('setAutoDirs', 'autoCheckDirs', { type: 'checked' });
 // Recordings folder
 async function showFolder() {
   const info = $('folderInfo');
@@ -699,5 +741,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
   await addRig();
   keepAwake();
   requestAnimationFrame(frame);
-  window.__app = { rigs, toggleFollow, applyVoice, hands, get recording() { return !!recorder; }, get counting() { return !!countdown; }, prompterShow, prompterPlay, get active() { return active; }, settings: S };
+  window.__app = { checkDirections: () => active.checkDirections(), rigs, toggleFollow, applyVoice, hands, get recording() { return !!recorder; }, get counting() { return !!countdown; }, prompterShow, prompterPlay, get active() { return active; }, settings: S };
 })();

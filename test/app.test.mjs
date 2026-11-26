@@ -28,6 +28,7 @@ await page.addInitScript({ path: join(root, 'test/mock-gimbal.js') });
 await page.addInitScript(() => {
   localStorage.setItem('rig0.model', 'om4');
   localStorage.setItem('om4.wakeStep', 'heartbeat');
+  if (!localStorage.getItem('gimbal-app.settings')) localStorage.setItem('gimbal-app.settings', JSON.stringify({ autoCheckDirs: false }));
   // Fake camera: a canvas stream (macOS blocks real/fake devices for automated browsers).
   const fakeStream = () => {
     const c = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
@@ -70,6 +71,15 @@ try {
   // Connect the (mock) gimbal
   await page.click('.rig .connect');
   await page.waitForFunction(() => /✓/.test(document.querySelector('.rig .connect').textContent), null, { timeout: 10000 });
+
+  // Stored direction-check result reverses that axis on the gimbal
+  await page.evaluate(() => { const r = window.__app.active; localStorage.setItem(r.dirsKey(), JSON.stringify({ pan: 'ok', tilt: 'flip' })); r.applySettings(); });
+  assert.deepEqual(await page.evaluate(() => [window.__app.active.gimbal.settings.invertPan, window.__app.active.gimbal.settings.invertTilt]), [false, true]);
+  // The check runs and reports even when the picture can't tell (test camera doesn't move)
+  const dirs = await page.evaluate(() => window.__app.checkDirections());
+  assert.deepEqual(dirs, { pan: null, tilt: null });
+  assert.match(await page.textContent('.rig .status'), /Directions:/);
+  assert.equal(await page.evaluate(() => window.__app.active.gimbal.settings.invertTilt), true, 'unsure check keeps the earlier answer');
 
   // Follow: face is right of centre, so the app must send rotate commands
   const before = await page.evaluate(() => window.__sentPackets.length);
