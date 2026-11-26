@@ -20,7 +20,7 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 await page.addInitScript({ path: join(root, 'test/mock-gimbal.js') });
-await page.goto('http://localhost:8765/');
+await page.goto('http://localhost:8765/lab.html');
 await page.click('#omConnect');
 await page.waitForFunction(() => document.getElementById('omRx').textContent.startsWith('yes'));
 await page.waitForFunction(() => document.getElementById('omBatt').textContent === '77%');

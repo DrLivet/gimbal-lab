@@ -32,7 +32,7 @@
   window.BluetoothUUID = { getService: (n) => u(n) };
   // attitude pushes, built by the page's own encoder (exposed for the test)
   setInterval(async () => {
-    const { build } = await import('/duml.js');
+    const { build } = await import('/lib/duml.js');
     const y = Math.round(yaw * 10), p = -1799;
     push(build({ src: 0x04, dst: 0x02, attr: 0, cmdSet: 0x04, cmd: 0x05,
       payload: [p & 255, (p >> 8) & 255, 0, 0, y & 255, (y >> 8) & 255, 0x82, 0, 0, 0] }));

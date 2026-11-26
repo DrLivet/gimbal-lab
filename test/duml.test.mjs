@@ -1,6 +1,6 @@
 // Run: node test/duml.test.mjs
 import assert from 'node:assert/strict';
-import { build, rotatePayload, ROT, Parser, crc16, hex } from '../duml.js';
+import { build, rotatePayload, ROT, Parser, crc16, hex } from '../lib/duml.js';
 
 // Packets copied from the log of the original om-research demo talking to our OM 4.
 // (CRC bytes are omitted: they were too small to read reliably in the phone screenshot.)

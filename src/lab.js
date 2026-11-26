@@ -1,6 +1,6 @@
-import { OsmoMobile, LADDER, runStep } from './om.js';
-import { Explorer, short } from './explorer.js';
-import { hex, h2 } from './duml.js';
+import { OsmoMobile, LADDER, runStep } from '../lib/om.js';
+import { Explorer, short } from '../lib/explorer.js';
+import { hex, h2 } from '../lib/duml.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -137,8 +137,9 @@ $('runLadder').addEventListener('click', async () => {
     log(`  result: ${moved ? 'MOVED' : 'did not move'}`);
     if (moved) {
       working = true;
+      try { localStorage.setItem('om4.wakeStep', step.id); } catch { /* private mode */ }
       $('found').hidden = false;
-      $('found').textContent = `Found it: step "${step.title}" moves your gimbal. Tap Copy log and send it to Claude, then try the arrows below.`;
+      $('found').textContent = `Found it: step "${step.title}" moves your gimbal. The app will now use this automatically. Tap Copy log and send it to Claude, then try the arrows below.`;
       break;
     }
   }
