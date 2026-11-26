@@ -78,7 +78,7 @@ What follows was the spec; all of it is in place except multi-camera use on real
 - Phone remote-debug helper used for these checks: Runtime.evaluate over the DevTools websocket on :9222.
 
 ## Confirmed on the owner's phone + OM 5 (2026-11-26, late afternoon)
-Owner-tested and working: follow-me (smooth, holds still when you're still, follows up/down), ✋ palm = record start/stop (3-2-1 countdown), ⟳ portrait/landscape button, 🔄 knob-twist gesture, voice ("gimbal landscape/portrait/follow me"). Recording saves standard MP4 (H.264 + AAC) on the phone (Downloads, or a folder picked in Settings › Recordings).
+Owner-tested and working: follow-me (smooth, holds still when you're still, follows up/down), ✋ palm = record start/stop (3-2-1 countdown), ⟳ portrait/landscape button. **Built but not yet tried by the owner:** 🔄 knob-twist gesture, voice ("gimbal landscape/portrait/follow me") on the real phone. Recording saves standard MP4 (H.264 + AAC) on the phone (Downloads, or a folder picked in Settings › Recordings).
 Key findings:
 - **Directions differ per mount/orientation.** The OM 5 measured both axes reversed in some sessions, only pan in others. The app now checks on every connect by nudging each axis and watching the picture (`src/calibrate.js`), stored per gimbal + front/back camera. Don't hard-code directions.
 - **Follow tuning:** gain 2, delay prediction 0.45 s (uses past commanded camera position), hold-still zone after 0.5 s settled, edge search sweep 60°/s for 2.5 s. **Speed-matching (feed-forward) made the real OM 5 swing ±100°/s — keep `matchSpeed: 0`.** Room simulation tests in `test/follow.test.mjs` cover gimbal speed ×0.5–1.6 and 0.2–0.5 s delay.
