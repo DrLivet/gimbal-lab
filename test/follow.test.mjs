@@ -67,3 +67,24 @@ assert.ok(facingScore(kp(0.56)) < 0.2);
 }
 
 console.log('follow: all tests passed');
+
+// Real-world delay (Bluetooth + camera + detector ≈ 0.3–0.5 s, measured on the owner's OM 5):
+// with the defaults, the face settles in the middle within ~1.5 s without swinging past it.
+{
+  const sim = (cmdDelay, seeDelay = 0.12, dt = 1 / 15) => {
+    const f = new Follow({ hfov: 66 }); let yaw = 0; const yawH = []; const cmdH = []; const xs = [];
+    for (let i = 0; i < 6 / dt; i++) {
+      const t = i * dt; yawH.push([t, yaw]);
+      const seen = yawH.filter(([tt]) => tt <= t - seeDelay).at(-1)?.[1] ?? 0;
+      const v = f.update(face(0.5 + (15 - seen) / 66, 0.435), dt); cmdH.push([t, v.pan]);
+      yaw += (cmdH.filter(([tt]) => tt <= t - cmdDelay).at(-1)?.[1] ?? 0) * dt; xs.push(0.5 + (15 - yaw) / 66);
+    }
+    return { over: Math.max(...xs.map((x) => 0.5 - x)), settle: xs.findIndex((x, i) => xs.slice(i).every((y) => Math.abs(y - 0.5) < 0.08)) * dt };
+  };
+  for (const d of [0.2, 0.35]) {
+    const r = sim(d);
+    assert.ok(r.over < 0.05, `no swing past the middle (delay ${d}s: ${r.over.toFixed(3)})`);
+    assert.ok(r.settle >= 0 && r.settle < 1.6, `settles quickly (delay ${d}s: ${r.settle.toFixed(2)}s)`);
+  }
+}
+console.log('follow: delay simulation passed');

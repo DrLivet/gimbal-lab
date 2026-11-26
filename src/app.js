@@ -206,9 +206,11 @@ class Rig {
   // Called every animation frame.
   tick(now) {
     const dt = (now - this.lastT) / 1000; this.lastT = now;
-    const wantTracker = this.following || (studio.auto && rigs.length > 1);
-    if (!wantTracker || now - this.lastDetect < 60) return;   // ~15 detections a second
-    if (!this.tracker) { if (studio.auto && rigs.length > 1 && !this.loadingTracker) this.loadTracker(); return; }
+    // Track whenever the box is shown (so you can see it has found you before tapping Follow),
+    // when following, or when auto-switching cameras.
+    const wantTracker = this.following || S.showOverlay || (studio.auto && rigs.length > 1);
+    if (!wantTracker || !this.stream || now - this.lastDetect < 60) return;   // ~15 detections a second
+    if (!this.tracker) { if (!this.loadingTracker) this.loadTracker(); return; }
     const ddt = (now - (this.lastDetectT || now)) / 1000; this.lastDetectT = now; this.lastDetect = now;
     let cands = [];
     try { cands = this.tracker.detect(this.video); } catch { /* frame not ready */ }
@@ -219,7 +221,11 @@ class Rig {
       const v = this.follow.update(t, ddt || dt);
       this.setVelocity(v.pan, v.tilt);
     }
-    if (S.showOverlay && this.following) this.drawOverlay(t); else this.clearOverlay();
+    if (S.showOverlay) this.drawOverlay(t); else this.clearOverlay();
+    if (this.following && !this.calibrating) {
+      const lost = !t;
+      if (lost !== this.wasLost) { this.wasLost = lost; this.setStatus(lost ? 'Looking for you… step into the picture' : ''); }
+    }
   }
 
   async loadTracker() {
@@ -239,12 +245,21 @@ class Rig {
     const scale = Math.min(c.width / vw, c.height / vh);
     const ox = (c.width - vw * scale) / 2; const oy = (c.height - vh * scale) / 2;
     const goal = FRAMING[S.framing] || FRAMING.center;
-    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2 * devicePixelRatio;
-    const gx = ox + goal.x * vw * scale; const gy = oy + goal.y * vh * scale;
-    ctx.beginPath(); ctx.moveTo(gx - 14, gy); ctx.lineTo(gx + 14, gy); ctx.moveTo(gx, gy - 14); ctx.lineTo(gx, gy + 14); ctx.stroke();
+    const dpr = devicePixelRatio;
+    if (this.following) {   // where Follow is trying to put your face
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 2 * dpr;
+      const gx = ox + goal.x * vw * scale; const gy = oy + goal.y * vh * scale;
+      ctx.beginPath(); ctx.moveTo(gx - 14 * dpr, gy); ctx.lineTo(gx + 14 * dpr, gy); ctx.moveTo(gx, gy - 14 * dpr); ctx.lineTo(gx, gy + 14 * dpr); ctx.stroke();
+    }
     if (!t) return;
-    ctx.strokeStyle = '#3fa0ff'; ctx.lineWidth = 3 * devicePixelRatio;
-    ctx.strokeRect(ox + (t.x - t.w / 2) * vw * scale, oy + (t.y - t.h / 2) * vh * scale, t.w * vw * scale, t.h * vh * scale);
+    // Face box: solid blue while following, dashed white when it just sees you.
+    const pad = 0.15;
+    const bx = ox + (t.x - (t.w * (1 + pad)) / 2) * vw * scale; const by = oy + (t.y - (t.h * (1 + pad)) / 2) * vh * scale;
+    const bw = t.w * (1 + pad) * vw * scale; const bh = t.h * (1 + pad) * vh * scale;
+    ctx.setLineDash(this.following ? [] : [10 * dpr, 8 * dpr]);
+    ctx.strokeStyle = this.following ? '#3fa0ff' : 'rgba(255,255,255,.85)'; ctx.lineWidth = (this.following ? 4 : 2.5) * dpr;
+    ctx.strokeRect(bx, by, bw, bh);
+    ctx.setLineDash([]);
   }
 
   clearOverlay() { const ctx = this.canvas.getContext('2d'); ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); }

@@ -22,6 +22,8 @@ export const DEFAULTS = {
   lostAfter: 1.2,    // seconds without a face before we stop
   smoothing: 0.12,   // seconds of detector smoothing
   accel: 1,          // how quickly speed changes (lower = gentler starts/stops)
+  gain: 1.5,         // deg/s of turn per degree you are off-target (before `speed`)
+  latency: 0.45,     // tuned on the owner's OM 5 (Bluetooth + camera + detector ≈ 0.3–0.5 s)        // seconds between a turn command and seeing it in the picture
 };
 
 // Walking: the body bobs and the detector jumps more, so smooth harder, ignore small drift,
@@ -61,13 +63,15 @@ export class Follow {
       : { x: cx, y: cy };
 
     const goal = FRAMING[s.framing] || FRAMING.center;
-    const ex = this.smooth.x - goal.x;          // + means person is right of where we want them
-    const ey = goal.y - this.smooth.y;          // + means person is above where we want them
+    // The picture is `latency` old and turns already commanded haven't shown up yet, so
+    // subtract them: aim at where the person will be, not where they were (stops overshoot).
+    const ex = this.smooth.x - goal.x - (this.vel.pan * s.latency) / s.hfov;   // + : person right of target
+    const ey = goal.y - this.smooth.y - (this.vel.tilt * s.latency) / s.vfov;  // + : person above target
     // Deadzone with hysteresis: start correcting outside the zone, stop once well inside.
     this.active.x = Math.abs(ex) > (this.active.x ? s.deadzone * 0.4 : s.deadzone);
     this.active.y = s.tiltEnabled && Math.abs(ey) > (this.active.y ? s.deadzone * 0.5 : s.deadzone * 1.3);
 
-    const gain = 2.2 * s.speed; // deg/s per degree of error
+    const gain = s.gain * s.speed; // deg/s per degree of error
     const clamp = (v) => Math.max(-s.maxSpeed, Math.min(s.maxSpeed, v));
     const want = {
       pan: this.active.x ? clamp(ex * s.hfov * gain) : 0,
