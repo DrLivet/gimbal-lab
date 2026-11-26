@@ -3,7 +3,7 @@ const KEY = 'gimbal-app.settings';
 
 export const DEFAULT_SETTINGS = {
   framing: 'center', speed: 1, tiltEnabled: true, trackMode: 'face',
-  hfov: 66, deadzone: 0.06, maxSpeed: 60,
+  hfov: 66, deadzone: 0.06, maxSpeed: 120,
   method: 'speed', invertPan: false, invertTilt: false,
   voiceWake: 'gimbal', micId: 'auto',
   autoSwitch: true, switchHold: 3,
@@ -13,7 +13,11 @@ export const DEFAULT_SETTINGS = {
 };
 
 export function load() {
-  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
+  try {
+    const s = { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+    if ((s.v || 1) < 2) { if (s.maxSpeed === 60) s.maxSpeed = 120; s.v = 2; }  // faster follow (2026-11-26)
+    return s;
+  }
   catch { return { ...DEFAULT_SETTINGS }; }
 }
 

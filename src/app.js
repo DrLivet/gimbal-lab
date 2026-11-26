@@ -2,7 +2,7 @@
 // A "rig" is one camera + (optionally) one gimbal + a face/body tracker + a follow controller.
 // Phone: one full-screen rig. Mac: a grid of rigs, with OBS scene switching to the camera you face.
 import { MODELS } from '../lib/gimbal.js';
-import { Follow, pickTarget, FRAMING, WALKING } from './follow.js';
+import { Follow, pickTarget, FRAMING, WALKING, fovFor } from './follow.js';
 import { HoldDetector, GestureWatcher } from './gesture.js';
 import { calibrate } from './calibrate.js';
 import { beep as rawBeep } from './beep.js';
@@ -73,7 +73,9 @@ class Rig {
   }
 
   followSettings() {
-    const base = { framing: S.framing, speed: S.speed, tiltEnabled: S.tiltEnabled, hfov: S.hfov, deadzone: S.deadzone, maxSpeed: S.maxSpeed, smoothing: 0.12, accel: 1, lostAfter: 1.2 };
+    // Field of view follows the picture's shape (phone upright = portrait).
+    const fov = this.video?.videoWidth ? fovFor(this.video.videoWidth, this.video.videoHeight) : { hfov: S.hfov, vfov: 50 };
+    const base = { framing: S.framing, speed: S.speed, tiltEnabled: S.tiltEnabled, ...fov, deadzone: S.deadzone, maxSpeed: S.maxSpeed, smoothing: 0.12, accel: 1, lostAfter: 1.2 };
     if (S.trackMode !== 'body') return base;
     return { ...base, smoothing: WALKING.smoothing, accel: WALKING.accel, lostAfter: WALKING.lostAfter, deadzone: S.deadzone * WALKING.deadzoneScale };
   }
@@ -85,7 +87,7 @@ class Rig {
       const d = this.dirs();
       Object.assign(this.gimbal.settings, {
         invertPan: S.invertPan !== (d.pan === 'flip'), invertTilt: S.invertTilt !== (d.tilt === 'flip'),
-        method: S.method, maxSpeed: Math.max(S.maxSpeed, 30),
+        method: S.method, maxSpeed: this.gimbal.constructor.name === 'FeiyuScorp' ? 60 : Math.max(S.maxSpeed, 30),
       });
     }
     if (this.tracker && this.trackerMode !== S.trackMode) { this.tracker.close(); this.tracker = null; }
@@ -115,6 +117,7 @@ class Rig {
     }
     this.retried = false; this.statusEl.textContent = '';
     this.video.srcObject = this.stream;
+    this.video.onloadedmetadata = () => this.applySettings();
     const track = this.stream.getVideoTracks()[0];
     const fm = track?.getSettings?.().facingMode;
     // Selfie cameras: show mirrored like a mirror; on a phone the gimbal's left/right is flipped too.
@@ -399,7 +402,7 @@ function setJoy(x, y) {
   joy.el.querySelector('.knob').style.transform = `translate(${x * 22}px, ${y * 22}px)`;
   if (!active?.gimbal?.connected) return;
   if (x || y) { if (active.following) toggleFollow(false); if (moveHandle) { moveHandle.stop(); moveHandle = null; } }
-  const m = Math.max(S.maxSpeed, 30);
+  const m = Math.min(Math.max(S.maxSpeed, 30), 60);  // joystick stays gentle
   // squared response: fine control near the middle, full speed at the edge
   const curve = (v) => Math.sign(v) * v * v;
   active.setVelocity(curve(x) * m, -curve(y) * m);

@@ -1,6 +1,6 @@
 // Run: node test/follow.test.mjs
 import assert from 'node:assert/strict';
-import { Follow, pickTarget, facingScore, WALKING } from '../src/follow.js';
+import { Follow, pickTarget, facingScore, WALKING, fovFor } from '../src/follow.js';
 
 const face = (x, y, w = 0.15) => ({ x, y, w, h: w });
 const run = (f, t, secs, dt = 1 / 15) => { let v; for (let i = 0; i < secs / dt; i++) v = f.update(t, dt); return v; };
@@ -88,3 +88,39 @@ console.log('follow: all tests passed');
   }
 }
 console.log('follow: delay simulation passed');
+
+// Room simulation like the owner's OM 5: phone upright, gimbal turns ~80% of what it's told,
+// 0.3 s command delay, picture 0.12 s old, detector wobble.
+{
+  const run = (path, { secs = 6, noise = 0.008 } = {}) => {
+    const fov = fovFor(1080, 1920); const dt = 1 / 15; const f = new Follow({ ...fov });
+    const cam = { pan: 0, tilt: 0 }; const H = []; const C = []; const log = [];
+    let r = 7; const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647 - 0.5) * 2;
+    for (let i = 0; i < secs / dt; i++) {
+      const t = i * dt; H.push([t, { ...cam }]);
+      const seen = H.filter(([tt]) => tt <= t - 0.12).at(-1)?.[1] ?? { pan: 0, tilt: 0 };
+      const p = path(t - 0.12);
+      const x = 0.5 + (p.pan - seen.pan) / fov.hfov + noise * rand(); const y = 0.42 - (p.tilt - seen.tilt) / fov.vfov + noise * rand();
+      const v = f.update(Math.abs(x - 0.5) < 0.5 && Math.abs(y - 0.5) < 0.5 ? face(x, y + 0.015) : null, dt); C.push([t, v]);
+      const ap = C.filter(([tt]) => tt <= t - 0.3).at(-1)?.[1] ?? { pan: 0, tilt: 0 };
+      cam.pan += ap.pan * 0.8 * dt; cam.tilt += ap.tilt * 0.8 * dt;
+      const q = path(t); log.push({ t, x: 0.5 + (q.pan - cam.pan) / fov.hfov, y: 0.42 - (q.tilt - cam.tilt) / fov.vfov, v });
+    }
+    return log;
+  };
+  const out = (L) => L.filter((l) => Math.abs(l.x - 0.5) > 0.5 || Math.abs(l.y - 0.5) > 0.5).length;
+  // Sitting still with wobble: after settling, the gimbal doesn't move at all.
+  const still = run(() => ({ pan: 4, tilt: 0 }), { noise: 0.015 }).filter((l) => l.t > 2);
+  assert.equal(still.filter((l) => Math.abs(l.v.pan) > 0.3 || Math.abs(l.v.tilt) > 0.3).length, 0, 'holds still when you sit still');
+  // Walking at 30°/s for 3 s: never leaves the picture.
+  assert.equal(out(run((t) => ({ pan: Math.min(Math.max(t - 0.5, 0), 3) * 30, tilt: 0 }))), 0, 'keeps up with a brisk walk');
+  // A very fast 60°/s move: may slip out briefly, but catches up and re-centres.
+  const fast = run((t) => ({ pan: Math.min(Math.max(t - 0.5, 0), 1.5) * 60, tilt: 0 }));
+  assert.ok(Math.abs(fast.at(-1).x - 0.5) < 0.08, `re-finds you after a fast move (${fast.at(-1).x.toFixed(2)})`);
+  // Standing up (20° up) and sitting down: tilt follows.
+  for (const dir of [1, -1]) {
+    const L = run((t) => ({ pan: 0, tilt: dir * Math.min(Math.max(t - 0.5, 0), 1) * 20 }));
+    assert.equal(out(L), 0); assert.ok(Math.abs(L.at(-1).y - 0.42) < 0.07, `tilt follows (${dir > 0 ? 'up' : 'down'}: ${L.at(-1).y.toFixed(2)})`);
+  }
+}
+console.log('follow: room simulation passed');
