@@ -1,6 +1,31 @@
-# Handover: gimbal-lab (2026-11-26)
+# Handover: gimbal-lab (updated 2026-11-27)
 
 Read this first. It covers what the owner wants, what exists, what has been tried on the real hardware, and what to do next.
+
+## START HERE: where the last session stopped (2026-11-26, ~19:20 local)
+
+The last session ran **on the owner's Mac** and ended mid-task when the usage limit was hit.
+
+**Owner-confirmed since the previous notes:**
+- 🔄 Knob-twist gesture (portrait/landscape) works **both ways**.
+- ✋ Palm = record start/stop works. The ☝️ point gesture isn't needed (owner forgot it existed; leave it in but don't push it).
+- Voice is **parked** for now.
+
+**In progress: Sony camera (ILCE-7M4, a7 IV) Bluetooth record control** (`lib/sony.js`, on `main`; unit tests pass, never worked on hardware):
+- Mac BLE scan sees the camera as `ILCE-7M4` (manufacturer id 0x012D) and also `OM5-8055QE` and `FY_SCORP_C_31`.
+- `tools/sony_test.py` (exists **only on the Mac**, not pushed) connected and listed services `8000ff00, 8000cc00, 8000dd00, 8000ee00, 8000bb00`. Status notify on FF02 worked.
+- Writing the record button to FF01 failed: **`GATT Protocol Error: Insufficient Encryption`**. The camera needs a bonded (paired) link. Bleak can't call `pair()` on macOS.
+- The camera sat on its "Pairing / ILCE-7M4 / Cancel" screen, but no pairing completed and nothing showed in the phone's Bluetooth list.
+- The last edit (not yet run) made `sony_test.py` retry the write 8 times, 3 s apart, so macOS gets a chance to start pairing and show its prompt.
+
+**Next for Sony, in order:**
+1. Camera: MENU › Network › Bluetooth: Bluetooth Function **On**, Bluetooth Rmt Ctrl **On**, then **Pairing** (leave that screen open).
+2. Try it **from the app on the S24** first (Settings › Sony camera › Connect). Android usually shows its own pair prompt when it meets an encrypted characteristic. Accept it on both the phone and the camera.
+3. If you're on the Mac: run the retry version of `tools/sony_test.py` from Terminal (via a `.command` launcher, because the Claude app process has no Bluetooth). Watch for a macOS pairing prompt and the camera's "OK".
+4. If neither pairs: remove any old "ILCE-7M4" entry from Mac/phone Bluetooth settings, then on the camera use MENU › Network › Bluetooth › **Pairing** again (or reset the camera's Bluetooth/network settings) and retry.
+5. Once a write goes through, confirm 0x010F/0x010E toggles recording, then check `lib/sony.js` uses the same sequence.
+
+**Unpushed work on the Mac (`~/Documents/code/gimbal-lab`):** local commit `afe5ce1` ("HANDOVER: twist confirmed both ways; Sony control and point gesture built, untested; voice parked") and `tools/sony_test.py` with the retry edit. A Mac session should commit and `git push` those first: `git pull --rebase` then push. This file already includes the gist of `afe5ce1`.
 
 ## The owner and the goal
 
